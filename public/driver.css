@@ -1,0 +1,273 @@
+/* Farmhouse Driver — mobile-first view (Requirement 8.2).
+ *
+ * Single-column layout, a max-width container so it stays readable on larger
+ * screens, and large tap targets (min 44px) for use on a phone in the field.
+ */
+
+:root {
+  --bg: #0f1720;
+  --panel: #172230;
+  --panel-2: #1f2f42;
+  --text: #e6edf3;
+  --muted: #8ba1b6;
+  --accent: #ffb703;
+  --green: #2dd4a7;
+  --danger: #f87171;
+  --border: #26384d;
+  --current: #3b5772;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Mobile-first container: full width on a phone, capped and centred on wider
+   screens so the driver view never sprawls. */
+.app {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 12px 14px 40px;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 2px 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(255, 183, 3, 0.2);
+}
+
+.brand h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 16px;
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+input {
+  width: 100%;
+  /* Large tap target + 16px font so mobile Safari does not zoom on focus. */
+  min-height: 48px;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.btn {
+  margin-top: 18px;
+  min-height: 52px;
+  width: 100%;
+  background: var(--accent);
+  color: #1a1200;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  min-height: 44px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 14px;
+  margin: 12px 0 0;
+}
+
+.route-meta {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 2px 12px;
+}
+
+.message {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.stop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stop {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+/* Highlight the current stop the driver should head to next (Req 8.1). */
+.stop.current {
+  border-color: var(--accent);
+  background: var(--current);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.stop.completed {
+  opacity: 0.55;
+}
+
+.stop-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.stop .seq {
+  min-width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+
+.stop .name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stop .eta {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 4px 0 0 40px;
+}
+
+.stop-actions {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+/* Both the maps link and the complete button are full-height tap targets. */
+.maps-link,
+.complete-btn {
+  min-height: 48px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  text-decoration: none;
+  cursor: pointer;
+  flex: 1 1 auto;
+}
+
+.maps-link {
+  background: var(--panel-2);
+  color: var(--green);
+  border: 1px solid var(--border);
+}
+
+.nav-fallback {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.complete-btn {
+  background: var(--green);
+  color: #04231a;
+  border: none;
+}
+
+.badge {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--green);
+}

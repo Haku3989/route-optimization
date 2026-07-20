@@ -1,0 +1,33 @@
+{
+  "name": "route-optimization",
+  "version": "1.0.0",
+  "description": "AI-driven delivery route optimization for Farmhouse (Saha Group) — real-time ETA, ERP/WMS-style order feed, and CO2 reduction metrics.",
+  "type": "module",
+  "main": "src/server.js",
+  "//env": "Environment variables read by this app: DATABASE_URL (e.g. postgres://user:pass@host:5432/dbname) OR the discrete PG* vars (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE) configure the PostgreSQL connection pool (src/db/pool.js, added in a later task); LONGDO_API_KEY is reused by the routing/geocoding layer (src/routing/router.js, src/routing/geocoder.js). No credentials are hard-coded.",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "db:seed": "node src/db/seedDrivers.js"
+  },
+  "keywords": [
+    "route-optimization",
+    "vrp",
+    "logistics",
+    "delivery",
+    "farmhouse",
+    "saha-group"
+  ],
+  "author": "Farmhouse Ideation Team",
+  "license": "MIT",
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8"
+  },
+  "devDependencies": {
+    "fast-check": "^3"
+  }
+}

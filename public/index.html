@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Route Optimization</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <div>
+          <h1>Farmhouse Route Optimization</h1>
+          <p>AI delivery planning · real-time ETA · CO₂ reduction</p>
+        </div>
+      </div>
+      <button id="optimizeBtn" class="btn">Optimize routes</button>
+    </header>
+
+    <section class="metrics" id="metrics">
+      <!-- metric cards injected here -->
+    </section>
+
+    <main class="layout">
+      <div id="map"></div>
+      <aside class="sidebar" id="routes">
+        <p class="hint">Click "Optimize routes" to generate a delivery plan.</p>
+      </aside>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

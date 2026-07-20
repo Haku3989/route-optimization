@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Driver</title>
+    <link rel="stylesheet" href="driver.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot"></span>
+          <h1>Farmhouse Driver</h1>
+        </div>
+        <button id="logoutBtn" class="link-btn" hidden>Log out</button>
+      </header>
+
+      <!-- Login view: the ONLY thing shown while unauthenticated (Req 10.3). -->
+      <section id="loginView" class="card">
+        <h2>Driver sign in</h2>
+        <form id="loginForm" autocomplete="off">
+          <label for="username">Username</label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            required
+          />
+
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+
+          <button id="loginBtn" type="submit" class="btn">Sign in</button>
+          <p id="loginError" class="error" role="alert" hidden></p>
+        </form>
+      </section>
+
+      <!-- Route view: populated only after authentication. -->
+      <main id="routeView" class="route-view" hidden>
+        <div id="routeMeta" class="route-meta"></div>
+        <ol id="stopList" class="stop-list"></ol>
+        <p id="routeMessage" class="message" hidden></p>
+      </main>
+    </div>
+
+    <script type="module" src="driver.js"></script>
+  </body>
+</html>
