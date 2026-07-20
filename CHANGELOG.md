@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-17
+
 ### Added
 
 - Route planner input page (`public/plan.html`, `plan.js`, `plan.css`) wired to
@@ -75,5 +77,6 @@ Excel-driven route planning feature.
 
 - Added `exceljs`, `multer`, and `pg`; added `fast-check` as a dev dependency.
 
-[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Haku3989/route-optimization/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Haku3989/route-optimization/releases/tag/v1.0.0
