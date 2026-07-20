@@ -421,3 +421,39 @@ test("compareHistory: two resolvable customers produce a full comparison", async
     assert.ok(row.optimizedEta);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Regression (Req 3.1): TIME_VISIT is often a bare time-of-day like "7:08".
+// It must (a) not break ingestion/ordering, and (b) sort chronologically by
+// time-of-day rather than lexicographically ("13:45" must come after "7:08").
+// ---------------------------------------------------------------------------
+
+test("historical order sorts bare time-of-day TIME_VISIT values chronologically", async () => {
+  const mkRow = (code, timeVisit, lat, lng) => ({
+    history: {
+      customerCode: code,
+      customerName: `Shop ${code}`,
+      timeVisit,
+      invoiceDate: "2026-01-10",
+    },
+    shop: { location: { lat, lng }, coordSource: "master" },
+  });
+
+  const joined = [
+    mkRow("C1", "13:45", 13.72, 100.53),
+    mkRow("C2", "7:08", 13.8, 100.55),
+    mkRow("C3", "9:30", 13.66, 100.6),
+  ];
+
+  const result = await compareHistory({
+    depot: DEPOT,
+    deps: { repositories: fakeRepos(joined), router: fakeRouter },
+  });
+
+  assert.ok(result.customers, `expected a comparison, got ${JSON.stringify(result)}`);
+  const order = [...result.customers]
+    .sort((a, b) => a.historicalSeq - b.historicalSeq)
+    .map((r) => r.customerCode);
+  // Chronological by time-of-day: 7:08 -> 9:30 -> 13:45.
+  assert.deepEqual(order, ["C2", "C3", "C1"]);
+});

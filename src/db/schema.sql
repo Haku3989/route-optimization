@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS history_entries (
   dc_name       TEXT,
   store_name    TEXT,
   invoice_date  DATE,                         -- delivered date (DELIVERY_DATE range filter)
-  time_visit    TIMESTAMP,                    -- ordering key (Req 3.1)
+  time_visit    TEXT,                         -- visit time, e.g. '7:08' (time-of-day) or a full timestamp; ordering key (Req 3.1)
   visit_type    TEXT,
   store_group   TEXT,
   store_area    TEXT,
@@ -28,6 +28,23 @@ CREATE TABLE IF NOT EXISTS history_entries (
   quantity      INTEGER                       -- จำนวนลง
 );
 CREATE INDEX IF NOT EXISTS idx_history_customer_code ON history_entries (customer_code);
+
+-- Migration: earlier versions typed `time_visit` as TIMESTAMP, which rejects a
+-- bare time-of-day value like '7:08' on insert. Relax it to TEXT so raw visit
+-- times ingest as-is; chronological ordering is handled in the service layer.
+-- Idempotent: only alters when the column is not already TEXT.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'history_entries'
+      AND column_name = 'time_visit'
+      AND data_type <> 'text'
+  ) THEN
+    ALTER TABLE history_entries
+      ALTER COLUMN time_visit TYPE TEXT USING time_visit::text;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS presale_entries (
   id            BIGSERIAL PRIMARY KEY,

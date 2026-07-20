@@ -82,6 +82,41 @@ function toTimeMs(value) {
 }
 
 /**
+ * Ordering key for a `TIME_VISIT` value (Requirement 3.1).
+ *
+ * Real history files record the visit as a bare time-of-day such as `"7:08"`
+ * (H:MM), which is not a parseable timestamp. This normalises the value to a
+ * monotonic numeric key so the historical visit order sorts correctly:
+ *   - a bare time-of-day `"H:MM"` / `"HH:MM"` / `"HH:MM:SS"` -> milliseconds
+ *     since midnight;
+ *   - a Date or a full date/time string -> epoch milliseconds;
+ *   - anything unparseable / missing -> +Infinity (sorts last).
+ *
+ * Within a single history dataset the `TIME_VISIT` values share one format, so
+ * the keys are mutually comparable and the resulting order is stable.
+ *
+ * @param {*} value
+ * @returns {number}
+ */
+function visitOrderKey(value) {
+  if (value == null || value === "") return Number.POSITIVE_INFINITY;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+  }
+  const s = String(value).trim();
+  const tod = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (tod) {
+    const hours = Number(tod[1]);
+    const minutes = Number(tod[2]);
+    const seconds = Number(tod[3] ?? 0);
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000; // ms since midnight
+  }
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/**
  * Whether any filter criterion is actually supplied (used to distinguish
  * "no records selected" from "no records matched").
  *
@@ -162,7 +197,7 @@ function distinctResolvableCustomers(records) {
     if (!history || !shop || !shop.location) continue; // not routable
 
     const code = history.customerCode;
-    const timeMs = toTimeMs(history.timeVisit) ?? Number.POSITIVE_INFINITY;
+    const timeMs = visitOrderKey(history.timeVisit);
 
     const existing = byCode.get(code);
     if (!existing || timeMs < existing.timeMs) {
