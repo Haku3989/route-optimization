@@ -34,6 +34,25 @@ prototype turns that idea into a working system.
 
 ## Running locally
 
+### Quick setup (scripts)
+
+To bootstrap the tooling (Node.js, PostgreSQL) and install dependencies in one
+step, run the setup script for your platform from the project root:
+
+```powershell
+# Windows (PowerShell) — add -UseDocker to run PostgreSQL in a container
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+```
+
+```bash
+# macOS / Linux — add --use-docker to run PostgreSQL in a container
+bash scripts/setup.sh
+```
+
+The scripts are idempotent (they only install what is missing) and print the
+next steps when done. Prefer to set things up by hand? Follow the manual steps
+below.
+
 ### Prerequisites
 
 - Node.js 18+ (the app uses built-in `fetch` and `node:test`).

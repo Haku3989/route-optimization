@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cross-platform local setup scripts (`scripts/setup.ps1` for Windows,
+  `scripts/setup.sh` for macOS/Linux) that install Node.js and PostgreSQL (or a
+  Docker container) and the npm dependencies, plus a README "Quick setup"
+  pointer to them.
+
 ## [1.1.0] - 2026-07-17
 
 ### Added
