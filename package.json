@@ -1,6 +1,6 @@
 {
   "name": "route-optimization",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AI-driven delivery route optimization for Farmhouse (Saha Group) — real-time ETA, ERP/WMS-style order feed, and CO2 reduction metrics.",
   "type": "module",
   "main": "src/server.js",
