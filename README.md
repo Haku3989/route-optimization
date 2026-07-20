@@ -32,20 +32,88 @@ prototype turns that idea into a working system.
 | Customer experience      | Map view, per-stop ETA, EV-aware planning                   |
 | How to measure success   | Distance saved, CO₂ saved, fleet utilization                |
 
-## Getting started
+## Running locally
+
+### Prerequisites
+
+- Node.js 18+ (the app uses built-in `fetch` and `node:test`).
+- A PostgreSQL instance (14+ recommended). The server verifies the database is
+  reachable on startup and exits with a clear message if it is not, so Postgres
+  must be running before `npm start`.
+
+### 1. Install dependencies
 
 ```bash
 npm install
+```
+
+### 2. Start PostgreSQL and point the app at it
+
+Configure the connection with either a single `DATABASE_URL` or the discrete
+`PG*` variables. No credentials are hard-coded.
+
+Fastest path with Docker:
+
+```bash
+docker run --name farmhouse-pg \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=route_optimization \
+  -p 5432:5432 -d postgres:16
+```
+
+Then set the connection string (bash/macOS/Linux):
+
+```bash
+export DATABASE_URL="postgres://postgres:password@localhost:5432/route_optimization"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:DATABASE_URL = "postgres://postgres:password@localhost:5432/route_optimization"
+```
+
+The schema is created automatically on startup and on seeding
+(`CREATE TABLE IF NOT EXISTS`), so there is no separate migration step.
+
+### 3. Seed a driver (needed for the driver app)
+
+Set a real password rather than the local-dev placeholder, then seed:
+
+```bash
+export SEED_DRIVER_USERNAME="driver1"
+export SEED_DRIVER_PASSWORD="choose-a-password"
+npm run db:seed
+```
+
+(PowerShell: use `$env:SEED_DRIVER_USERNAME = "driver1"` etc.)
+
+### 4. Start the server
+
+```bash
 npm start
 ```
 
-Then open http://localhost:3000
+Then open:
 
-Run the tests:
+- **Dashboard** — http://localhost:3000 (sample CVRP optimizer + map)
+- **Route planner input** — http://localhost:3000/plan.html (upload workbooks,
+  history comparison, presale planning)
+- **Driver app** — http://localhost:3000/driver.html (log in with the seeded
+  driver, follow the route, hand off to Google Maps)
+
+Set `PORT` to use a specific port (e.g. `PORT=4000 npm start`); otherwise the
+server falls back to the next free port if 3000 is taken.
+
+### Running the tests (no database required)
 
 ```bash
 npm test
 ```
+
+The unit and property tests run without Postgres. The database-backed
+integration tests skip automatically unless `DATABASE_URL` is set; point it at a
+disposable test database to run them.
 
 ## API
 
