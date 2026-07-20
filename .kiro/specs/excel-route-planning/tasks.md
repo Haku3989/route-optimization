@@ -224,9 +224,19 @@ The existing optimizer/ETA core is reused unchanged in behaviour; the ETA extens
   - [x] 16.4 Final checkpoint - ensure all tests pass
     - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 17. Planner-facing route input page (post-spec follow-up)
+  - [x] 17.1 Implement the planner input page wired to the existing endpoints
+    - `public/plan.html` + `public/plan.js` + `public/plan.css`: upload panel (`POST /api/ingest/upload`), history comparison (`POST /api/history/compare`), presale planning (`POST /api/presale/plan`); nav link added from `public/index.html`; `styles.css` updated. Server data rendered via `textContent`/DOM APIs (no `innerHTML` injection). Endpoints remain unauthenticated by design (prototype).
+    - _Requirements: 1.1, 3.1, 4.1, 5.1, 6.1, 8.1_
+  - [x] 17.2 Implement the pure planner view module
+    - `public/planView.js` (DOM-free): `buildFilters`, `fmtEta`, `summarizeComparison`, `summarizePlan`.
+  - [x]* 17.3 Unit/property tests for the pure planner helpers
+    - `tests/planView.test.js` (`node:test` + `fast-check`): `buildFilters` omit/keep/trim, `summarizeComparison` message vs table + `savedKm`/`savedPct`, `summarizePlan` message vs plan + stop flattening. Full suite green (98 pass, 12 DB integration skipped).
+
 ## Notes
 
 - Tasks marked with `*` are optional test sub-tasks and can be skipped for a faster MVP; core implementation tasks are never optional.
 - Each task references specific requirement clauses and/or design correctness Properties (1-23) for traceability.
 - Property tests use `fast-check` (`numRuns >= 100`), tagged `// Feature: excel-route-planning, Property N: ...`, and run against injected fakes/stubs so they never require a live database. Integration tests exercise the real `pg` layer and are skipped when `DATABASE_URL` is absent.
 - Checkpoints (tasks 15, 16.4) enforce incremental validation, including the unchanged-regression guarantee for `tests/optimizer.test.js`.
+- Task 17 was added after the original spec as a follow-up requested by the user. It documents the planner-facing route input page and depends only on the existing `/api/ingest/upload`, `/api/history/compare`, and `/api/presale/plan` endpoints (no backend change).

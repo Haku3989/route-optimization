@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Route Planner — Input</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="plan.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <div>
+          <h1>Farmhouse Route Planner</h1>
+          <p>Upload workbooks · compare history · plan the presale route</p>
+        </div>
+      </div>
+      <a class="btn secondary" href="index.html">← Dashboard</a>
+    </header>
+
+    <main class="plan-layout">
+      <!-- ============================ UPLOAD ============================ -->
+      <section class="panel" id="uploadPanel">
+        <h2>1 · Upload workbook</h2>
+        <p class="hint">
+          Upload the Shop_Master, History and Presale workbooks (.xlsx). Repeat
+          for each file.
+        </p>
+
+        <form id="uploadForm" class="stack">
+          <label for="uploadType">Workbook type</label>
+          <select id="uploadType" name="type">
+            <option value="">(auto-detect)</option>
+            <option value="shopMaster">Shop_Master</option>
+            <option value="history">History</option>
+            <option value="presale">Presale</option>
+          </select>
+
+          <label for="uploadFile">Workbook file (.xlsx)</label>
+          <input
+            id="uploadFile"
+            name="file"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            required
+          />
+
+          <button id="uploadBtn" type="submit" class="btn">Upload</button>
+        </form>
+
+        <div id="uploadResult" class="result" hidden></div>
+
+        <h3>Upload log (this session)</h3>
+        <ul id="uploadLog" class="upload-log">
+          <li class="hint">No uploads yet.</li>
+        </ul>
+      </section>
+
+      <!-- ======================= HISTORY COMPARISON ==================== -->
+      <section class="panel" id="historyPanel">
+        <h2>2 · History comparison</h2>
+        <p class="hint">
+          Compare the original delivery order against an AI-optimized order for
+          the same customers.
+        </p>
+
+        <form id="historyForm" class="grid-filters">
+          <label>DC_Name<input type="text" name="DC_Name" /></label>
+          <label>StoreName<input type="text" name="StoreName" /></label>
+          <label>StoreGroup<input type="text" name="StoreGroup" /></label>
+          <label>Store Area<input type="text" name="Store Area" /></label>
+          <label>CustomerType<input type="text" name="CustomerType" /></label>
+          <label>Delivery date from<input type="date" name="deliveryDateFrom" /></label>
+          <label>Delivery date to<input type="date" name="deliveryDateTo" /></label>
+          <button id="historyBtn" type="submit" class="btn">Compare</button>
+        </form>
+
+        <div id="historyResult" class="result" hidden></div>
+      </section>
+
+      <!-- ======================== PRESALE PLANNING ===================== -->
+      <section class="panel" id="presalePanel">
+        <h2>3 · Presale planning</h2>
+        <p class="hint">
+          Build an optimized delivery route from the presale customer list.
+        </p>
+
+        <form id="presaleForm" class="grid-filters">
+          <label>DC_Name<input type="text" name="DC_Name" /></label>
+          <label>StoreName<input type="text" name="StoreName" /></label>
+          <label>DELIVERY_DATE<input type="date" name="DELIVERY_DATE" /></label>
+          <label>StoreGroup<input type="text" name="StoreGroup" /></label>
+          <label>Store Area<input type="text" name="Store Area" /></label>
+          <label>CustomerType<input type="text" name="CustomerType" /></label>
+          <button id="presaleBtn" type="submit" class="btn">Plan route</button>
+        </form>
+
+        <div id="presaleResult" class="result" hidden></div>
+      </section>
+    </main>
+
+    <script type="module" src="plan.js"></script>
+  </body>
+</html>

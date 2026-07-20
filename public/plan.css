@@ -1,0 +1,249 @@
+/* Farmhouse Route Planner — input page.
+ *
+ * Reuses the shared design tokens and .topbar / .btn / .hint styles from
+ * styles.css; this file only adds the planner-specific layout (three stacked
+ * panels), the filter grids, tables and result/log styling. Desktop-first
+ * dashboard styling that still reflows to a single column on narrow screens.
+ */
+
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.plan-layout {
+  display: grid;
+  gap: 18px;
+  padding: 18px 22px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.panel h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.panel h3 {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 18px 0 8px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+label {
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+input,
+select {
+  min-height: 42px;
+  font-size: 15px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type="file"] {
+  padding: 8px;
+}
+
+.grid-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+
+.grid-filters .btn {
+  align-self: end;
+  height: 42px;
+}
+
+.result {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.result .error-box {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.result .message-box {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 4px 0 14px;
+  font-size: 14px;
+}
+
+.summary-line .stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.summary-line .stat .k {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary-line .stat .v {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.summary-line .stat .v.saved {
+  color: var(--green);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.data th,
+table.data td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+table.data th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+table.data tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chips {
+  display: flex;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+}
+
+.chip {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.route-block {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.route-block .route-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.route-block .route-title .meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+
+.warn-title {
+  color: var(--accent);
+}
+
+.upload-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upload-log li {
+  font-size: 13px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.upload-log li.hint {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.upload-log .ok {
+  color: var(--green);
+}
+
+.upload-log .fail {
+  color: #fca5a5;
+}
