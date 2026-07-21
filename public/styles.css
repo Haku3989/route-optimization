@@ -6,13 +6,15 @@
  * Farmhouse Route Optimization — shared theme.
  *
  * Warm "Farmhouse" palette (barn red + wheat gold + sage green over cream),
- * now expressed as hairline-bordered PAPER panels — no glassmorphism. See
- * /design.md for the full system. Values below reference tokens.css.
+ * expressed as frosted-glass panels (backdrop-filter blur) over a warm
+ * gradient backdrop — restored by explicit request; see /design.md's
+ * "deviation from Hallmark's default glassmorphism ban". Values below
+ * reference tokens.css, including its --glass*/--blur tokens.
  *
- * The older token names (--panel, --panel-2, --accent, --green, --border,
- * --glass*, --blur) are kept as aliases so any stray reference in plan.css /
- * database.css / deliveryReport.css continues to resolve without a rename
- * sweep, but every rule in THIS file uses the new tokens directly.
+ * The older token names (--panel, --panel-2, --accent, --green, --border)
+ * are kept as aliases so any stray reference in plan.css / database.css /
+ * deliveryReport.css continues to resolve without a rename sweep, but every
+ * rule in THIS file uses the new tokens directly.
  */
 
 :root {
@@ -44,7 +46,14 @@ body {
   font-family: var(--font-body);
   color: var(--color-ink);
   min-height: 100vh;
-  background: var(--color-paper);
+  /* Warm gradient backdrop — glass panels need something colorful behind
+   * them for the frost/blur to actually read. */
+  background:
+    radial-gradient(1100px 620px at 12% -8%, oklch(66% 0.14 45 / 50%), transparent 60%),
+    radial-gradient(1000px 680px at 108% 112%, oklch(75% 0.14 75 / 45%), transparent 55%),
+    radial-gradient(720px 520px at 88% 4%, oklch(55% 0.17 32 / 28%), transparent 60%),
+    linear-gradient(160deg, var(--color-paper) 0%, var(--color-paper-2) 46%, oklch(88% 0.05 70) 100%);
+  background-attachment: fixed;
 }
 
 /* --------------------------------------------------------------------------
@@ -62,6 +71,8 @@ body {
   top: 0;
   z-index: 1000;
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border-bottom: 1px solid var(--color-rule);
   box-shadow: var(--surface-shadow-sm);
 }
@@ -138,6 +149,8 @@ a.btn {
 
 .btn.secondary {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   border: 1px solid var(--color-rule);
   box-shadow: none;
@@ -145,6 +158,8 @@ a.btn {
 
 .btn.secondary:hover {
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border-color: var(--color-rule-strong);
 }
 
@@ -162,6 +177,8 @@ a.btn {
 .segmented {
   display: inline-flex;
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-btn);
   padding: 3px;
@@ -204,6 +221,8 @@ a.btn {
 
 .metric-card {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-card);
   padding: 14px 16px;
@@ -259,6 +278,8 @@ a.btn {
   flex-wrap: wrap;
   padding: 14px 22px;
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border-bottom: 1px solid var(--color-rule);
 }
 
@@ -283,6 +304,8 @@ a.btn {
 .filter-fields input,
 .filter-fields select {
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-input);
   color: var(--color-ink);
@@ -352,8 +375,50 @@ a.btn {
   background: var(--color-paper-2);
 }
 
+/* Numbered stop markers (L.divIcon) — shows each stop's sequence position
+ * directly on the map, colored to match its route. */
+.route-marker {
+  background: transparent;
+  border: none;
+}
+
+.route-marker-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: var(--surface-shadow-sm);
+  color: var(--color-accent-ink);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Hover tooltip (bindTooltip) — matches the app's hairline-panel voice
+ * instead of Leaflet's plain default box. */
+.leaflet-tooltip {
+  background: var(--surface);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--surface-shadow-sm);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+
+.leaflet-tooltip-top:before {
+  border-top-color: var(--color-rule);
+}
+
 .sidebar {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   box-shadow: var(--surface-shadow-sm);
@@ -372,6 +437,8 @@ a.btn {
 
 .route-card {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-card);
   margin-bottom: 12px;
@@ -500,6 +567,8 @@ a.btn {
 
 .message-box {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-card);
   padding: 12px 14px;
@@ -529,6 +598,8 @@ a.btn {
 .overview-field select {
   width: 100%;
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-input);
   color: var(--color-ink);
@@ -597,6 +668,8 @@ a.btn {
   width: 100%;
   max-width: 380px;
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 26px 24px;
@@ -631,6 +704,8 @@ a.btn {
   border-radius: var(--radius-input);
   border: 1px solid var(--color-rule);
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
@@ -711,6 +786,8 @@ a.btn {
 
 .admin-card {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 18px 20px;
@@ -755,6 +832,8 @@ a.btn {
   border-radius: var(--radius-input);
   border: 1px solid var(--color-rule);
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }

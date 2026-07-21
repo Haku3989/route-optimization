@@ -19,6 +19,8 @@
 
 .panel {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 18px 20px;
@@ -74,6 +76,8 @@ select {
   border-radius: var(--radius-input);
   border: 1px solid var(--color-rule);
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   width: 100%;
   transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
@@ -142,6 +146,8 @@ select option {
 
 .result .message-box {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-input);
   padding: 14px 16px;
@@ -217,12 +223,16 @@ table.data tbody tr:hover {
   padding: 3px 9px;
   border-radius: var(--radius-pill);
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   color: var(--color-ink-2);
 }
 
 .route-block {
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-card);
   padding: 12px 14px;
@@ -295,6 +305,8 @@ table.data tbody tr:hover {
 .upload-log li {
   font-size: 13px;
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: 8px;
   padding: 8px 10px;
@@ -319,6 +331,8 @@ table.data tbody tr:hover {
   margin: 14px 0;
   padding: 12px 14px;
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-input);
 }

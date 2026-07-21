@@ -48,7 +48,13 @@ export async function planDeliveries({
       // vehicle's own depot (e.g. a store's assigned DC) when it has one,
       // otherwise the plan-level depot (solveCVRP already resolved this).
       const routeDepot = route.depot || depot;
-      const legs = await legsForRoute(router, routeDepot, route.stops, route.vehicle);
+      // withGeometry: true — this IS the rendered route (dashboard map, and
+      // (via the presale plan) the driver's own map), so it's worth the
+      // extra Longdo request per leg. The baseline-only comparison below
+      // never renders, so it does NOT request geometry.
+      const legs = await legsForRoute(router, routeDepot, route.stops, route.vehicle, {
+        withGeometry: true,
+      });
       const distanceKm = sumDistanceKm(legs);
       const etas = etasFromLegs(route.stops, legs, departAt);
       const co2Kg = co2ForDistance(distanceKm, route.vehicle);
@@ -63,6 +69,12 @@ export async function planDeliveries({
         depot: routeDepot,
         distanceKm: round(distanceKm),
         co2Kg: round(co2Kg),
+        // One entry per leg (depot->stop1, stop1->stop2, ..., lastStop->depot):
+        // the leg's real road-snapped points, or `null` when unavailable (the
+        // estimator provider, or this leg's geometry fetch specifically
+        // failed) — the frontend draws a straight line for any `null` leg
+        // rather than failing the whole route's polyline.
+        legsGeometry: legs.map((leg) => leg.geometry ?? null),
         stops: route.stops.map((stop, i) => ({
           orderId: stop.id,
           customer: stop.customer,
@@ -104,19 +116,19 @@ export async function planDeliveries({
  * Leg metrics for a full route: depot -> stops... -> depot.
  * Returns [] for an empty route (no travel).
  */
-function legsForRoute(router, depot, stops, vehicle) {
+function legsForRoute(router, depot, stops, vehicle, opts = {}) {
   if (stops.length === 0) return Promise.resolve([]);
   const locations = stops.map((s) => s.location);
-  return legsForSequence(router, depot, locations, vehicle?.speedKmh);
+  return legsForSequence(router, depot, locations, vehicle?.speedKmh, opts);
 }
 
 /**
  * Leg metrics for depot -> locations... -> depot.
  */
-function legsForSequence(router, depot, locations, speedKmh) {
+function legsForSequence(router, depot, locations, speedKmh, opts = {}) {
   if (locations.length === 0) return Promise.resolve([]);
   const points = [depot, ...locations, depot];
-  return router.routeLegs(points, { speedKmh });
+  return router.routeLegs(points, { speedKmh, withGeometry: opts.withGeometry });
 }
 
 function sumDistanceKm(legs) {

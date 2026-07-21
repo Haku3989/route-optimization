@@ -28,11 +28,21 @@
   --color-late:        oklch(54.3% 0.174 29.7);
   --color-late-wash:   oklch(54.3% 0.174 29.7 / 14%);
 
-  /* Surfaces — hairline paper panels, no glass/blur anywhere */
-  --surface: oklch(99% 0.008 82.8);
-  --surface-2: oklch(95.5% 0.02 83);
-  --surface-shadow: 0 1px 2px oklch(30% 0.03 55 / 6%), 0 8px 24px oklch(30% 0.03 55 / 8%);
-  --surface-shadow-sm: 0 1px 2px oklch(30% 0.03 55 / 8%);
+  /* Surfaces — frosted glass panels over the warm gradient backdrop (restored
+   * by explicit request; see design.md's "deviation from Hallmark's default
+   * glassmorphism ban"). --surface/--surface-2 are translucent so the blur
+   * actually shows the backdrop through them. */
+  --surface: oklch(99% 0.008 82.8 / 62%);
+  --surface-2: oklch(95.5% 0.02 83 / 46%);
+  --surface-shadow: 0 10px 30px oklch(30% 0.05 40 / 18%);
+  --surface-shadow-sm: 0 6px 16px oklch(30% 0.05 40 / 12%);
+
+  --glass: oklch(99% 0.008 82.8 / 42%);
+  --glass-strong: oklch(99% 0.008 82.8 / 62%);
+  --glass-2: oklch(99% 0.008 82.8 / 28%);
+  --glass-border: oklch(99% 0.008 82.8 / 70%);
+  --glass-shadow: var(--surface-shadow);
+  --blur: saturate(160%) blur(14px);
 
   /* Type */
   --font-display: "Fraunces", ui-serif, Georgia, serif;

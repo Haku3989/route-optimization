@@ -388,18 +388,31 @@ export function toOrder(customer) {
 /**
  * Compute per-stop ETAs for an ordered list of stops, mirroring `routeService`:
  * ask the router for the depot -> stops -> depot leg metrics, then derive ETAs
- * from those legs. Returns a `Map<customerCode, etaISO>`.
+ * from those legs.
+ *
+ * `opts.withGeometry` (default false) additionally asks the router for each
+ * leg's real road-snapped geometry — only worth the extra Longdo request per
+ * leg when the caller actually renders a map (`compareHistory`, for the
+ * dashboard); `deliveryReportService.js` calls this WITHOUT it, since that
+ * report has no map.
+ *
+ * @returns {Promise<{ etaByCode: Map<string,string|null>,
+ *   legsGeometry: Array<Array<{lat:number,lng:number}>|null> }>}
+ *   `legsGeometry` has one entry per leg (depot->stop1, ..., lastStop->depot);
+ *   each entry is the leg's points, or `null` when unavailable (estimator
+ *   provider, `withGeometry` not requested, or that leg's fetch failed) — the
+ *   frontend draws a straight line for any `null` leg.
  */
-export async function etasByCode(router, depot, stops, departAt, speedKmh) {
-  if (stops.length === 0) return new Map();
+export async function etasByCode(router, depot, stops, departAt, speedKmh, opts = {}) {
+  if (stops.length === 0) return { etaByCode: new Map(), legsGeometry: [] };
   const points = [depot, ...stops.map((s) => s.location), depot];
-  const legs = await router.routeLegs(points, { speedKmh });
+  const legs = await router.routeLegs(points, { speedKmh, withGeometry: opts.withGeometry });
   const etas = etasFromLegs(stops, legs, departAt);
-  const map = new Map();
+  const etaByCode = new Map();
   for (let i = 0; i < stops.length; i++) {
-    map.set(stops[i].id, etas[i]?.etaISO ?? null);
+    etaByCode.set(stops[i].id, etas[i]?.etaISO ?? null);
   }
-  return map;
+  return { etaByCode, legsGeometry: legs.map((leg) => leg.geometry ?? null) };
 }
 
 /**
@@ -512,10 +525,15 @@ export async function compareHistory({
     closeTime: customer.closeTime ?? undefined,
   }));
 
-  // Per-customer ETAs for BOTH orderings (Requirement 3.3).
-  const [historicalEtas, optimizedEtas] = await Promise.all([
-    etasByCode(router, resolvedDepot, historicalStops, resolvedDepartAt, speedKmh),
-    etasByCode(router, resolvedDepot, optimizedStops, resolvedDepartAt, speedKmh),
+  // Per-customer ETAs for BOTH orderings (Requirement 3.3). withGeometry:
+  // true — both orderings are drawn on the dashboard map, so both are worth
+  // the extra Longdo request per leg for a real road-following polyline.
+  const [
+    { etaByCode: historicalEtas, legsGeometry: historicalRouteGeometry },
+    { etaByCode: optimizedEtas, legsGeometry: optimizedRouteGeometry },
+  ] = await Promise.all([
+    etasByCode(router, resolvedDepot, historicalStops, resolvedDepartAt, speedKmh, { withGeometry: true }),
+    etasByCode(router, resolvedDepot, optimizedStops, resolvedDepartAt, speedKmh, { withGeometry: true }),
   ]);
 
   // Sequence positions per ordering (1-based).
@@ -555,6 +573,11 @@ export async function compareHistory({
     optimizedDistanceKm,
     historicalCo2Kg,
     optimizedCo2Kg,
+    // One entry per leg (depot->stop1, ..., lastStop->depot) for each
+    // ordering, or `null` per-leg when unavailable — see `etasByCode`'s doc.
+    // Additive: existing consumers that ignore these fields are unaffected.
+    historicalRouteGeometry,
+    optimizedRouteGeometry,
   };
 }
 

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Farmhouse Driver</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -55,6 +56,7 @@
       <!-- Route view: populated only after authentication. -->
       <main id="routeView" class="route-view" hidden>
         <div id="routeMeta" class="route-meta"></div>
+        <div id="driverMap" class="driver-map" hidden></div>
         <ol id="stopList" class="stop-list"></ol>
         <p id="routeMessage" class="message" hidden></p>
 
@@ -68,6 +70,7 @@
       </main>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="driver.js"></script>
   </body>
 </html>

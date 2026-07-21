@@ -153,7 +153,15 @@ async function computeStoreReport({ storeName, storeRecords, dayKey, departAt, r
   const notionalVehicle = { id: `RPT-${storeName}`, capacity: orders.length, speedKmh: ETA_CONFIG.DEFAULT_SPEED_KMH };
   const { routes } = solveCVRP({ depot, vehicles: [notionalVehicle], orders });
   const optimizedStops = routes.flatMap((r) => r.stops);
-  const etaByCustomerCode = await etasByCode(router, depot, optimizedStops, departAt, ETA_CONFIG.DEFAULT_SPEED_KMH);
+  // No withGeometry here — this report has no map, so it's not worth the
+  // extra Longdo request per leg.
+  const { etaByCode: etaByCustomerCode } = await etasByCode(
+    router,
+    depot,
+    optimizedStops,
+    departAt,
+    ETA_CONFIG.DEFAULT_SPEED_KMH
+  );
 
   const counters = emptyStoreCounters();
   let unparseableTimeCount = 0;

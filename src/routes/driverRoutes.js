@@ -74,11 +74,21 @@ const router = Router();
  * @param {{ repositories?: object, getLatestPresalePlan?: Function, now?: () => Date }} [deps]
  *   injectable for testing; default to the real repository module and the
  *   real in-memory latest-plan holder.
+ * `routeGeometry`/`depot` (both additive) pass through `routeService
+ * .planDeliveries`'s `legsGeometry`/`depot` for the driver's own route
+ * unchanged: `routeGeometry` has one entry per leg (depot->stop1, ...,
+ * lastStop->depot), each the leg's real road-snapped points or `null`
+ * (estimator provider, or that leg's fetch failed) - so the driver's own map
+ * can draw a real route the same way the dashboard's does, anchored at the
+ * same depot location.
+ *
  * @returns {Promise<{ driverId:number, routeId:string|null,
  *   stops: Array<{ sequence:number, customerCode:string|null, customer:string|null,
  *     eta:string|null, location:object|null, address:string|null,
  *     completed:boolean, category:string|null, deviationMin:number|null,
  *     mapsUrl:string|null }>,
+ *   routeGeometry: Array<Array<{lat:number,lng:number}>|null>,
+ *   depot: {lat:number,lng:number}|null,
  *   currentSequence: number|null }>}
  */
 export async function getRouteForDriver(driverId, deps = {}) {
@@ -128,6 +138,8 @@ export async function getRouteForDriver(driverId, deps = {}) {
     driverId,
     routeId: stops.length > 0 ? driverRouteId : null,
     stops,
+    routeGeometry: stops.length > 0 && Array.isArray(ownRoute?.legsGeometry) ? ownRoute.legsGeometry : [],
+    depot: stops.length > 0 ? ownRoute?.depot ?? null : null,
     currentSequence: nextStop ? nextStop.sequence : null,
   };
 }

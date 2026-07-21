@@ -8,8 +8,8 @@
  * screens, and large tap targets (min 44px) for use on a phone in the field.
  *
  * Loads tokens.css (shared with every other page) instead of carrying its
- * own duplicated palette — see /design.md. Hairline-bordered paper surfaces,
- * no glassmorphism.
+ * own duplicated palette — see /design.md. Frosted-glass surfaces over a
+ * warm gradient backdrop.
  */
 
 * {
@@ -27,7 +27,12 @@ body {
   color: var(--color-ink);
   -webkit-text-size-adjust: 100%;
   min-height: 100vh;
-  background: var(--color-paper);
+  background:
+    radial-gradient(700px 460px at 8% -6%, oklch(66% 0.14 45 / 50%), transparent 60%),
+    radial-gradient(720px 520px at 112% 108%, oklch(75% 0.14 75 / 45%), transparent 55%),
+    radial-gradient(520px 420px at 92% 2%, oklch(55% 0.17 32 / 28%), transparent 60%),
+    linear-gradient(160deg, var(--color-paper) 0%, var(--color-paper-2) 46%, oklch(88% 0.05 70) 100%);
+  background-attachment: fixed;
 }
 
 /* Mobile-first container: full width on a phone, capped and centred on wider
@@ -72,6 +77,8 @@ body {
 
 .card {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 18px 16px;
@@ -108,6 +115,8 @@ input {
   border-radius: var(--radius-input);
   border: 1px solid var(--color-rule);
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
@@ -152,6 +161,8 @@ input:focus {
 
 .btn.secondary {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-ink);
   border: 1px solid var(--color-rule);
   box-shadow: none;
@@ -179,8 +190,66 @@ input:focus {
   padding: 4px 2px 12px;
 }
 
+/* Route preview map — shows the driver's own stops in order, real
+ * road-following lines where available (straight-line fallback per leg
+ * otherwise, same as the dashboard map). */
+.driver-map {
+  height: 220px;
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  box-shadow: var(--surface-shadow-sm);
+  background: var(--color-paper-2);
+  margin: 0 0 14px;
+}
+
+/* Numbered stop markers (L.divIcon) — same visual language as the dashboard
+ * map's .route-marker/.route-marker-dot (styles.css). */
+.route-marker {
+  background: transparent;
+  border: none;
+}
+
+.route-marker-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: var(--surface-shadow-sm);
+  color: var(--color-accent-ink);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Tap-to-show popup (Leaflet's default marker trigger is click, which is
+ * what a touch device needs — no hover state to reach for). */
+.leaflet-popup-content-wrapper {
+  background: var(--surface);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--surface-shadow-sm);
+  color: var(--color-ink);
+}
+
+.leaflet-popup-content {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 10px 12px;
+}
+
+.leaflet-popup-tip {
+  background: var(--surface);
+}
+
 .message {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 22px 16px;
@@ -201,6 +270,8 @@ input:focus {
 
 .stop {
   background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-panel);
   padding: 14px;
@@ -285,6 +356,8 @@ input:focus {
 
 .maps-link {
   background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   color: var(--color-accent-2);
   border: 1px solid var(--color-rule);
 }

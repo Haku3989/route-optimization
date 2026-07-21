@@ -15,6 +15,7 @@
 
 import {
   renderRoute,
+  renderStopList,
   advanceStop,
   EMPTY_MESSAGE,
   FALLBACK_MESSAGE,
@@ -36,6 +37,7 @@ const passwordEl = document.getElementById("password");
 
 const routeView = document.getElementById("routeView");
 const routeMeta = document.getElementById("routeMeta");
+const driverMapEl = document.getElementById("driverMap");
 const stopList = document.getElementById("stopList");
 const routeMessage = document.getElementById("routeMessage");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -178,6 +180,110 @@ function render(route) {
   const stopCount = route && Array.isArray(route.stops) ? route.stops.length : 0;
   routeMeta.textContent = stopCount === 0 ? "" : `${stopCount} stops on your route`;
   renderRoute(route, ops);
+  renderMap(route);
+}
+
+// --- Route preview map -------------------------------------------------------
+// Same visual language as the dashboard map (public/app.js): numbered
+// markers, real road-following lines per leg with a straight-line fallback.
+// Difference: a marker's info shows on TAP (Leaflet's default click trigger
+// for bindPopup), not hover — there's no hover state on a phone.
+
+let driverMap = null;
+let driverLayerGroup = null;
+const ROUTE_COLOR = getComputedStyle(document.documentElement)
+  .getPropertyValue("--color-accent")
+  .trim();
+const CURRENT_STOP_COLOR = getComputedStyle(document.documentElement)
+  .getPropertyValue("--color-gold")
+  .trim();
+
+function ensureMap() {
+  if (driverMap) return;
+  driverMap = L.map("driverMap", { attributionControl: false }).setView([13.7563, 100.5018], 11);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(driverMap);
+  driverLayerGroup = L.layerGroup().addTo(driverMap);
+}
+
+function numberedIcon(number, color) {
+  return L.divIcon({
+    className: "route-marker",
+    html: `<span class="route-marker-dot" style="background:${color}">${number}</span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
+/** Popup content built as DOM nodes (never an HTML string) so a customer
+ * name can never be interpreted as markup. */
+function stopPopupContent(vm) {
+  const wrap = document.createElement("div");
+  const name = document.createElement("b");
+  name.textContent = vm.customer == null ? "(unnamed)" : vm.customer;
+  wrap.appendChild(name);
+  wrap.appendChild(document.createElement("br"));
+  wrap.appendChild(document.createTextNode(`ETA ${fmtTime(vm.eta)}`));
+  return wrap;
+}
+
+/** One polyline per leg, using that leg's real geometry when available and
+ * falling back to a straight line otherwise — mirrors app.js's drawRouteLine. */
+function drawRouteLine(points, legsGeometry, style) {
+  for (let i = 0; i < points.length - 1; i++) {
+    const legPoints = legsGeometry?.[i];
+    const line =
+      Array.isArray(legPoints) && legPoints.length > 0
+        ? legPoints.map((p) => [p.lat, p.lng])
+        : [points[i], points[i + 1]];
+    L.polyline(line, style).addTo(driverLayerGroup);
+  }
+}
+
+function usableLocation(loc) {
+  return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
+}
+
+/** Draw the driver's own route: depot, numbered stop markers (tap for info),
+ * and the connecting line. Hidden entirely when there are no stops. */
+function renderMap(route) {
+  const stopCount = route && Array.isArray(route.stops) ? route.stops.length : 0;
+  driverMapEl.hidden = stopCount === 0;
+  if (stopCount === 0) return;
+
+  ensureMap();
+  driverLayerGroup.clearLayers();
+
+  const bounds = [];
+  const line = [];
+  const depot = route.depot;
+  if (usableLocation(depot)) {
+    L.marker([depot.lat, depot.lng], { title: "Depot" }).addTo(driverLayerGroup);
+    bounds.push([depot.lat, depot.lng]);
+    line.push([depot.lat, depot.lng]);
+  }
+
+  for (const vm of renderStopList(route)) {
+    if (!usableLocation(vm.location)) continue;
+    const { lat, lng } = vm.location;
+    bounds.push([lat, lng]);
+    line.push([lat, lng]);
+    L.marker([lat, lng], { icon: numberedIcon(vm.sequence, vm.isCurrent ? CURRENT_STOP_COLOR : ROUTE_COLOR) })
+      .bindPopup(stopPopupContent(vm))
+      .addTo(driverLayerGroup);
+  }
+
+  if (usableLocation(depot)) line.push([depot.lat, depot.lng]);
+
+  drawRouteLine(line, route.routeGeometry, { color: ROUTE_COLOR, weight: 4, opacity: 0.85 });
+
+  // The map may have just been un-hidden — Leaflet needs a nudge to size
+  // itself correctly after its container's dimensions become non-zero.
+  driverMap.invalidateSize();
+  if (bounds.length > 1) driverMap.fitBounds(bounds, { padding: [24, 24] });
+  else if (bounds.length === 1) driverMap.setView(bounds[0], 14);
 }
 
 /**

@@ -64,6 +64,25 @@ function isLatLng(value) {
 }
 
 /**
+ * Sanitize a `legsGeometry`-shaped array (one entry per leg: real
+ * road-snapped points, or `null` when unavailable) into a render-ready form —
+ * each non-null entry filtered/mapped to plain `{lat,lng}` pairs, entries
+ * that aren't a usable point array collapse to `null`. Pure; never throws on
+ * a malformed/missing input.
+ *
+ * @param {unknown} legsGeometry
+ * @returns {Array<Array<{lat:number,lng:number}>|null>}
+ */
+function sanitizeLegsGeometry(legsGeometry) {
+  if (!Array.isArray(legsGeometry)) return [];
+  return legsGeometry.map((leg) => {
+    if (!Array.isArray(leg) || leg.length === 0) return null;
+    const points = leg.filter(isLatLng).map((p) => ({ lat: p.lat, lng: p.lng }));
+    return points.length > 0 ? points : null;
+  });
+}
+
+/**
  * Build a request `filters` object from raw form inputs, keeping ONLY the keys
  * whose values are non-empty (after trimming). Whitespace-only values are
  * dropped so an untouched field never over-constrains the query; provided
@@ -112,12 +131,19 @@ export function fmtEta(iso) {
  * (null depot, null location, 0 CO2) when a caller — like the planner table —
  * ignores them.
  *
+ * `historicalRouteGeometry`/`optimizedRouteGeometry` are additive: one entry
+ * per leg (depot->stop1, ..., lastStop->depot) of real road-snapped points,
+ * or `null` per-leg when unavailable — the map draws a straight line for any
+ * `null` leg instead of failing the whole polyline.
+ *
  * @param {object} result the parsed JSON body from /api/history/compare
  * @returns {{ isMessage: boolean, message?: string,
  *   depot: {lat:number,lng:number}|null, rows: Array<object>,
  *   historicalDistanceKm: number, optimizedDistanceKm: number,
  *   savedKm: number, savedPct: number,
- *   historicalCo2Kg: number, optimizedCo2Kg: number, co2SavedKg: number }}
+ *   historicalCo2Kg: number, optimizedCo2Kg: number, co2SavedKg: number,
+ *   historicalRouteGeometry: Array<Array<{lat:number,lng:number}>|null>,
+ *   optimizedRouteGeometry: Array<Array<{lat:number,lng:number}>|null> }}
  */
 export function summarizeComparison(result) {
   if (!result || typeof result !== "object" || typeof result.message === "string") {
@@ -133,6 +159,8 @@ export function summarizeComparison(result) {
       historicalCo2Kg: 0,
       optimizedCo2Kg: 0,
       co2SavedKg: 0,
+      historicalRouteGeometry: [],
+      optimizedRouteGeometry: [],
     };
   }
 
@@ -173,6 +201,8 @@ export function summarizeComparison(result) {
     historicalCo2Kg: round(historicalCo2Kg),
     optimizedCo2Kg: round(optimizedCo2Kg),
     co2SavedKg,
+    historicalRouteGeometry: sanitizeLegsGeometry(result.historicalRouteGeometry),
+    optimizedRouteGeometry: sanitizeLegsGeometry(result.optimizedRouteGeometry),
   };
 }
 
@@ -198,6 +228,7 @@ export function summarizeComparison(result) {
  *   routes: Array<{ vehicleId: (string|null), fuelType: (string|null),
  *     distanceKm: number, co2Kg: number, load: (number|null),
  *     capacity: (number|null), depot: ({lat:number,lng:number}|null),
+ *     legsGeometry: Array<Array<{lat:number,lng:number}>|null>,
  *     stops: Array<{ sequence:(number|null), customer:(string|null),
  *       customerCode:(string|null), eta:(string|null), demand:(number|null),
  *       location:({lat:number,lng:number}|null), address:(string|null) }> }>,
@@ -238,6 +269,10 @@ export function summarizePlan(result) {
             name: route.depot.name ?? null,
           }
         : null,
+      // One entry per leg (depot->stop1, ..., lastStop->depot); the map
+      // draws a straight line for any null leg. See summarizeComparison's
+      // doc for the same convention.
+      legsGeometry: sanitizeLegsGeometry(route.legsGeometry),
       stops: route.stops.map((stop) => ({
         sequence: stop.sequence ?? null,
         customer: stop.customer ?? null,

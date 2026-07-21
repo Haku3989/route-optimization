@@ -165,6 +165,50 @@ function fitBounds(bounds) {
   if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
+/** A small numbered circle marker showing the stop's sequence position,
+ * colored to match its route. Replaces the plain (unlabelled) circleMarker. */
+function numberedIcon(number, color) {
+  return L.divIcon({
+    className: "route-marker",
+    html: `<span class="route-marker-dot" style="background:${color}">${number}</span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
+/** Add a numbered marker at [lat,lng], showing `tooltipHtml` on HOVER (not
+ * click — Leaflet's bindTooltip default trigger is mouseover/mouseout). */
+function addStopMarker(lat, lng, number, color, tooltipHtml) {
+  L.marker([lat, lng], { icon: numberedIcon(number, color) })
+    .bindTooltip(tooltipHtml, { direction: "top", offset: [0, -14], opacity: 0.95 })
+    .addTo(layerGroup);
+}
+
+/**
+ * Draw a route as one polyline per leg, using that leg's real road-snapped
+ * geometry when available and falling back to a straight line between its
+ * two endpoints otherwise — so a single missing/failed leg degrades only
+ * that segment, not the whole route's line.
+ *
+ * @param {Array<[number,number]>} points ordered [lat,lng] pairs INCLUDING
+ *   the depot at both ends (same shape `orderedLatLngs` builds) — leg i runs
+ *   from points[i] to points[i+1].
+ * @param {Array<Array<{lat:number,lng:number}>|null>} [legsGeometry] one
+ *   entry per leg (points.length - 1 entries); a missing/shorter array
+ *   degrades any leg past its end to a straight line too.
+ * @param {object} style Leaflet polyline style options.
+ */
+function drawRouteLine(points, legsGeometry, style) {
+  for (let i = 0; i < points.length - 1; i++) {
+    const legPoints = legsGeometry?.[i];
+    const line =
+      Array.isArray(legPoints) && legPoints.length > 0
+        ? legPoints.map((p) => [p.lat, p.lng])
+        : [points[i], points[i + 1]];
+    L.polyline(line, style).addTo(layerGroup);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Metric cards (shared renderer)
 // ---------------------------------------------------------------------------
@@ -350,40 +394,39 @@ function renderHistoryMap(vm) {
   const bounds = [];
   depotMarker(vm.depot, bounds);
 
-  // Historical route: dashed amber. Optimized route: solid green.
+  // Historical route: dashed amber. Optimized route: solid green. Each drawn
+  // as real road-following segments when the backend resolved them, straight
+  // lines otherwise (drawRouteLine degrades per-leg, not all-or-nothing).
   const histLine = orderedLatLngs(vm.rows, "historicalSeq", vm.depot);
   const optLine = orderedLatLngs(vm.rows, "optimizedSeq", vm.depot);
 
   if (histLine.length > 1) {
-    L.polyline(histLine, {
+    drawRouteLine(histLine, vm.historicalRouteGeometry, {
       color: HIST_COLOR,
       weight: 3,
       opacity: 0.7,
       dashArray: "6 8",
-    }).addTo(layerGroup);
+    });
   }
   if (optLine.length > 1) {
-    L.polyline(optLine, { color: OPT_COLOR, weight: 3, opacity: 0.9 }).addTo(layerGroup);
+    drawRouteLine(optLine, vm.optimizedRouteGeometry, { color: OPT_COLOR, weight: 3, opacity: 0.9 });
   }
 
-  // One marker per customer, labelled with its optimized position.
+  // One numbered marker per customer (numbered by its OPTIMIZED position —
+  // the recommended order), hover shows both orderings' sequence + ETA.
   for (const r of vm.rows) {
     if (!r.location) continue;
     const { lat, lng } = r.location;
     bounds.push([lat, lng]);
-    L.circleMarker([lat, lng], {
-      radius: 8,
-      color: OPT_COLOR,
-      fillColor: OPT_COLOR,
-      fillOpacity: 0.9,
-      weight: 2,
-    })
-      .bindPopup(
-        `<b>${escapeHtml(r.customer || r.customerCode || "Customer")}</b><br>` +
-          `Historical #${r.historicalSeq} · ETA ${fmtEta(r.historicalEta)}<br>` +
-          `Optimized #${r.optimizedSeq} · ETA ${fmtEta(r.optimizedEta)}`,
-      )
-      .addTo(layerGroup);
+    addStopMarker(
+      lat,
+      lng,
+      r.optimizedSeq,
+      OPT_COLOR,
+      `<b>${escapeHtml(r.customer || r.customerCode || "Customer")}</b><br>` +
+        `Historical #${r.historicalSeq} · ETA ${fmtEta(r.historicalEta)}<br>` +
+        `Optimized #${r.optimizedSeq} · ETA ${fmtEta(r.optimizedEta)}`,
+    );
   }
 
   fitBounds(bounds);
@@ -483,23 +526,19 @@ function renderSampleMap(plan) {
       line.push([lat, lng]);
       bounds.push([lat, lng]);
 
-      L.circleMarker([lat, lng], {
-        radius: 8,
+      addStopMarker(
+        lat,
+        lng,
+        stop.sequence,
         color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 2,
-      })
-        .bindPopup(
-          `<b>${stop.sequence}. ${escapeHtml(stop.customer)}</b><br>` +
-            `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}<br>` +
-            `Demand: ${stop.demand} units`,
-        )
-        .addTo(layerGroup);
+        `<b>${escapeHtml(stop.customer)}</b><br>` +
+          `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}<br>` +
+          `Demand: ${stop.demand} units`,
+      );
     });
 
     line.push([plan.depot.lat, plan.depot.lng]);
-    L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(layerGroup);
+    drawRouteLine(line, route.legsGeometry, { color, weight: 3, opacity: 0.8 });
   });
 
   fitBounds(bounds);
@@ -654,22 +693,18 @@ function renderPresaleMap(vm) {
       line.push([lat, lng]);
       bounds.push([lat, lng]);
 
-      L.circleMarker([lat, lng], {
-        radius: 8,
+      addStopMarker(
+        lat,
+        lng,
+        stop.sequence,
         color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 2,
-      })
-        .bindPopup(
-          `<b>${stop.sequence}. ${escapeHtml(stop.customer)}</b><br>` +
-            `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}`,
-        )
-        .addTo(layerGroup);
+        `<b>${escapeHtml(stop.customer)}</b><br>` +
+          `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}`,
+      );
     }
     if (depot) line.push([depot.lat, depot.lng]);
 
-    if (line.length > 1) L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(layerGroup);
+    if (line.length > 1) drawRouteLine(line, route.legsGeometry, { color, weight: 3, opacity: 0.8 });
   });
 
   fitBounds(bounds);

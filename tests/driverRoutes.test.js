@@ -165,3 +165,75 @@ test("getRouteForDriver: every stop completed -> currentSequence is null (route 
   assert.equal(route.stops[0].completed, true);
   assert.equal(route.currentSequence, null);
 });
+
+test("getRouteForDriver: passes through the plan route's legsGeometry as routeGeometry, for the driver's own route only", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 9, username: "driver9", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
+  };
+  const ownGeometry = [[{ lat: 13.7, lng: 100.5 }, { lat: 13.71, lng: 100.51 }], null];
+  const otherGeometry = [[{ lat: 99, lng: 99 }]];
+  const latestPlan = () =>
+    fakePlan([
+      { vehicleId: "Store A", stops: [{ orderId: "C1", customer: "Shop 1" }], legsGeometry: ownGeometry },
+      { vehicleId: "Store B", stops: [{ orderId: "C2", customer: "Shop 2" }], legsGeometry: otherGeometry },
+    ]);
+
+  const route = await getRouteForDriver(9, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.deepEqual(route.routeGeometry, ownGeometry);
+});
+
+test("getRouteForDriver: an empty route (no stops) reports empty routeGeometry, not undefined/crash", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 10, username: "driver10", routeId: null }),
+    deliveryCompletionsForDriverDay: noCompletions(),
+  };
+  const latestPlan = () => fakePlan([]);
+
+  const route = await getRouteForDriver(10, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.deepEqual(route.routeGeometry, []);
+});
+
+test("getRouteForDriver: a plan route with no legsGeometry field (older/fake plan shape) degrades to empty routeGeometry, not a crash", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 11, username: "driver11", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
+  };
+  const latestPlan = () => fakePlan([{ vehicleId: "Store A", stops: [{ orderId: "C1", customer: "Shop 1" }] }]);
+
+  const route = await getRouteForDriver(11, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.deepEqual(route.routeGeometry, []);
+});
+
+test("getRouteForDriver: passes through the plan route's own depot, for the driver's own route only", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 12, username: "driver12", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
+  };
+  const ownDepot = { lat: 13.75, lng: 100.5 };
+  const otherDepot = { lat: 99, lng: 99 };
+  const latestPlan = () =>
+    fakePlan([
+      { vehicleId: "Store A", stops: [{ orderId: "C1", customer: "Shop 1" }], depot: ownDepot },
+      { vehicleId: "Store B", stops: [{ orderId: "C2", customer: "Shop 2" }], depot: otherDepot },
+    ]);
+
+  const route = await getRouteForDriver(12, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.deepEqual(route.depot, ownDepot);
+});
+
+test("getRouteForDriver: an empty route (no stops) reports depot: null, not undefined/crash", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 13, username: "driver13", routeId: null }),
+    deliveryCompletionsForDriverDay: noCompletions(),
+  };
+  const latestPlan = () => fakePlan([]);
+
+  const route = await getRouteForDriver(13, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.equal(route.depot, null);
+});

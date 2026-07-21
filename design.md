@@ -16,6 +16,12 @@ There are **no marketing pages** in this app — every page is functional
 UI (filter bars, tables, forms, a map). Hallmark's marketing macrostructures
 (Marquee Hero, Bento Grid, etc.) do not apply here; see § App pages below.
 
+**Explicit deviation from Hallmark's default glassmorphism ban**: this app
+keeps frosted-glass surfaces (`backdrop-filter: blur`) by the user's direct
+request, overriding editorial/modern-minimal's "no glass" rule. This is a
+project-level exception — the panels are glass, floating over a warm
+gradient backdrop, with the new palette/typography/motion applied on top.
+
 ## Genre
 
 editorial (default, flexible voice — allows a warm accent and hairline
@@ -46,11 +52,14 @@ OKLCH from the production hex values, not re-invented):
 - `--color-paper-2`    oklch(92.9% 0.041 85.3)   /* wheat — secondary surface tint */
 - `--color-ink`        oklch(30.3% 0.028 55.1)   /* warm dark brown text — kept */
 - `--color-ink-2`      oklch(53.6% 0.035 66.9)   /* muted warm taupe — kept */
-- `--color-rule`       oklch(85% 0.02 80)        /* new — hairline border tone, replaces glass-blur edges */
+- `--color-rule`       oklch(85% 0.02 80)        /* hairline border tone, used on top of glass edges */
 - `--color-accent`     oklch(54.7% 0.176 31.9)   /* barn red — primary brand accent, kept */
 - `--color-accent-2`   oklch(48.4% 0.157 31.9)   /* barn-dark — accent hover/active state */
 - `--color-gold`       oklch(75.4% 0.138 74.7)   /* gold — secondary highlight (e.g. "current" state), kept */
 - `--color-focus`      oklch(54.7% 0.176 31.9)   /* focus ring = accent */
+- `--glass` / `--glass-strong` / `--glass-2`     translucent white washes over the warm gradient backdrop
+- `--glass-border`     translucent white, edge of every glass panel
+- `--blur`             `saturate(160%) blur(14px)` — the frosted-glass filter itself
 
 Functional status semantics (not decorative accents — kept distinct from
 the single-accent rule because they're load-bearing UI meaning, established
@@ -127,9 +136,9 @@ no bounce, no infinite loops except functional loaders.
   buttons, active nav state, focus rings — not decorative floods).
 - The display + body fonts.
 - The CTA voice (button shape, radius, padding rhythm).
-- Hairline-bordered paper panels — **no glassmorphism anywhere** (this
-  replaces the current `backdrop-filter: blur` cards on every page,
-  including `driver.css`'s self-contained copy).
+- Frosted-glass surfaces (`backdrop-filter: blur`) over the warm gradient
+  backdrop, on every page including `driver.css`'s self-contained copy —
+  restored by explicit user request; see the deviation note above.
 - The motion language above (easings, durations, stagger pattern).
 
 ## What pages MAY differ on
@@ -166,6 +175,13 @@ no bounce, no infinite loops except functional loaders.
   --color-early:      oklch(56.1% 0.092 238.7);
   --color-on-time:    oklch(60.1% 0.097 140.9);
   --color-late:       oklch(54.3% 0.174 29.7);
+
+  --glass:        rgba(255, 255, 255, 0.42);
+  --glass-strong: rgba(255, 255, 255, 0.62);
+  --glass-2:      rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 10px 30px rgba(97, 58, 30, 0.18);
+  --blur:         saturate(160%) blur(14px);
 
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-body:    "Work Sans", -apple-system, system-ui, sans-serif;

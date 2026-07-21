@@ -7,7 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-22
+
 ### Added
+
+- **Real road-following route lines on the dashboard map,** with a numbered
+  marker per stop and hover-to-show delivery info (customer, ETA, demand).
+  Each route leg draws its actual road geometry — fetched from OSRM's public
+  routing server (`router.project-osrm.org`), fully decoupled from Longdo's
+  distance/duration call — and falls back to a straight line for any leg
+  whose geometry couldn't be fetched, so a single failed leg only degrades
+  its own segment. (Longdo's own `route/path`/`geojson/route` endpoints were
+  evaluated first but, on live testing, consistently returned geometry that
+  never reached the leg's actual destination — an account/key-level
+  limitation, not a code bug — so geometry now comes from OSRM instead.)
+- **Route preview map on the driver page.** The driver's own route now
+  renders on an embedded map — depot, numbered stop markers, and the same
+  real/fallback route line as the dashboard — with tap-to-show stop info
+  instead of hover, since there's no hover state on a phone.
+- **Daily delivery on-time report** (`public/deliveryReport.html`): compares
+  each History delivery's actual recorded time against the AI-optimized
+  route's computed ETA for that day, reporting an early/on-time/late
+  breakdown (±15 min tolerance) both per-store and per-delivery, filterable
+  by StoreName/DC_Name/etc.
+- **Live driver stop-completion tracking.** `POST /api/driver/complete`
+  persists a real completion record (snapshotting the stop's planned ETA
+  against the actual completion moment) and returns immediate
+  early/on-time/late feedback shown as a badge on the stop; `GET
+  /api/driver/route` now reflects persisted completions so they survive a
+  refresh. `GET /api/driver/summary` aggregates a driver's own completions
+  for the day into a "Today's summary" panel.
+- Vehicles now default to departing the depot at 04:00 instead of the exact
+  moment a request hits the server, so ETAs reflect a realistic delivery
+  start. History comparisons anchor to the filter's selected day and Presale
+  plans to the filter's delivery date; an explicit `departAt` still wins.
+- A full visual redesign across all 6 pages (`design.md`): a custom OKLCH
+  palette anchored on the existing Farmhouse brand hues, Fraunces + Work Sans
+  + IBM Plex Mono typography, glassmorphism surfaces over a warm gradient
+  backdrop, and a richer motion language (stagger reveal, count-up metrics,
+  hover/press feedback, entrance replay on data refresh) — purely additive,
+  no route/id/class/form-field the app depends on was touched.
+
+### Fixed
+
+- Geocoding backfill retries were reusing each shop's stale persisted query
+  instead of rebuilding it fresh from the current customerName+DC-area
+  strategy, so a re-run kept re-attempting an earlier run's query — a real
+  run only issued 685 unique queries against 37k customers. Retries now
+  rejoin `history_entries` and rebuild the query fresh; the geocoder also
+  gained the same request timeout `LongdoRouter` already had, so a bulk
+  backfill's thousands of pooled requests can't stall indefinitely on one
+  unbounded hang.
+- Geocoding queries now combine the cleaned customer name (branch-code noise
+  stripped) with the delivery center's area name for disambiguation, instead
+  of the internal DC/unit `storeName` code, which was never geocodable.
 
 - **Presale route preview on the dashboard.** A third "Presale" source
   joins History/Sample plan on the dashboard toggle — same endpoint and
@@ -306,7 +359,8 @@ Excel-driven route planning feature.
 
 - Added `exceljs`, `multer`, and `pg`; added `fast-check` as a dev dependency.
 
-[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Haku3989/route-optimization/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Haku3989/route-optimization/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Haku3989/route-optimization/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Haku3989/route-optimization/compare/v1.2.1...v1.3.0

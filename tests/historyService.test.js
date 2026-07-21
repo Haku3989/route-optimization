@@ -643,6 +643,57 @@ test("compareHistory: two resolvable customers produce a full comparison", async
     assert.ok(row.historicalEta);
     assert.ok(row.optimizedEta);
   }
+  // fakeRouter never supplies a `geometry` field, so both orderings degrade
+  // to an all-null per-leg array (not undefined, not a thrown error) — the
+  // frontend's straight-line fallback signal.
+  assert.ok(Array.isArray(result.historicalRouteGeometry));
+  assert.ok(result.historicalRouteGeometry.every((g) => g === null));
+  assert.ok(Array.isArray(result.optimizedRouteGeometry));
+  assert.ok(result.optimizedRouteGeometry.every((g) => g === null));
+});
+
+test("compareHistory: surfaces each ordering's real per-leg route geometry when the router supplies it", async () => {
+  const joined = [
+    {
+      history: { customerCode: "C1", customerName: "Shop 1", timeVisit: "2026-01-01T09:00:00Z", invoiceDate: "2026-01-01" },
+      shop: { location: { lat: 13.72, lng: 100.53 }, coordSource: "master" },
+    },
+    {
+      history: { customerCode: "C2", customerName: "Shop 2", timeVisit: "2026-01-01T08:00:00Z", invoiceDate: "2026-01-01" },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+
+  let call = 0;
+  const geometryRouter = {
+    provider: "test",
+    async routeLegs(points, opts) {
+      assert.equal(opts.withGeometry, true, "compareHistory must request geometry for both rendered orderings");
+      call += 1;
+      return points.slice(1).map((_, i) => ({
+        distanceKm: 1,
+        durationMin: 2,
+        // Distinct geometry per call so the test can tell historical vs optimized apart.
+        geometry: i === 0 ? [{ lat: 13.7 + call, lng: 100.5 }, { lat: 13.71 + call, lng: 100.51 }] : null,
+      }));
+    },
+  };
+
+  const result = await compareHistory({
+    depot: DEPOT,
+    deps: { repositories: fakeRepos(joined), router: geometryRouter },
+  });
+
+  assert.equal(call, 2, "one routeLegs() call per ordering (historical, optimized)");
+  assert.ok(Array.isArray(result.historicalRouteGeometry));
+  assert.ok(Array.isArray(result.optimizedRouteGeometry));
+  // First leg of each ordering carries real geometry; later legs (i>0) are null.
+  assert.ok(Array.isArray(result.historicalRouteGeometry[0]));
+  assert.ok(Array.isArray(result.optimizedRouteGeometry[0]));
+  assert.equal(result.historicalRouteGeometry[1], null);
+  assert.equal(result.optimizedRouteGeometry[1], null);
+  // The two orderings' geometry are genuinely distinct (not the same array reused).
+  assert.notDeepEqual(result.historicalRouteGeometry[0], result.optimizedRouteGeometry[0]);
 });
 
 // ---------------------------------------------------------------------------

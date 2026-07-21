@@ -156,3 +156,138 @@ test("LongdoRouter: a hanging request is treated as a failure after requestTimeo
     globalThis.fetch = originalFetch;
   }
 });
+
+// --- Route geometry (withGeometry) -------------------------------------------
+// Geometry comes from OSRM (router.project-osrm.org), fully independent of
+// Longdo's `route/guide` distance/duration call — see router.js's "Route
+// geometry" module doc.
+
+const OSRM_LEG_OK = { ok: true, status: 200, distance: 3200, duration: 420 };
+
+/** Fake fetch that routes by URL: `route/guide` returns a distance/duration
+ * response, `router.project-osrm.org` returns that leg's OSRM geometry. */
+function fakeGeometryFetch({ coords = [[100.51, 13.76], [100.53, 13.72]] } = {}) {
+  return async (url) => {
+    if (String(url).includes("router.project-osrm.org")) {
+      return {
+        ok: true,
+        json: async () => ({ code: "Ok", routes: [{ geometry: { coordinates: coords } }] }),
+      };
+    }
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ data: [{ distance: 3000, interval: 300, id: 555 }] }),
+    };
+  };
+}
+
+test("LongdoRouter: withGeometry omitted -> no geometry key at all (default shape unchanged)", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fakeGeometryFetch();
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K" });
+    const legs = await router.routeLegs([A, B]);
+    assert.equal(legs.length, 1);
+    assert.ok(!("geometry" in legs[0]), "geometry key must be entirely absent when not requested");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LongdoRouter: withGeometry fetches the leg's road-snapped points from OSRM", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const coords = [[100.51, 13.76], [100.52, 13.75], [100.53, 13.72]];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return fakeGeometryFetch({ coords })(url);
+  };
+
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K" });
+    const legs = await router.routeLegs([A, B], { withGeometry: true });
+
+    assert.equal(legs.length, 1);
+    assert.deepEqual(legs[0].geometry, [
+      { lat: 13.76, lng: 100.51 },
+      { lat: 13.75, lng: 100.52 },
+      { lat: 13.72, lng: 100.53 },
+    ]);
+
+    // Two real requests: the Longdo guide call, then the independent OSRM call.
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes("/route/guide"));
+    assert.ok(calls[1].includes("router.project-osrm.org"));
+    assert.ok(calls[1].includes(`${A.lng},${A.lat};${B.lng},${B.lat}`));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("EstimatorRouter: withGeometry -> geometry:null per leg (no network, straight-line fallback signal)", async () => {
+  const router = new EstimatorRouter();
+  const legs = await router.routeLegs([A, B, C], { withGeometry: true });
+  assert.equal(legs.length, 2);
+  for (const leg of legs) assert.equal(leg.geometry, null);
+});
+
+test("LongdoRouter: a geometry-only (OSRM) failure degrades just that leg's geometry to null — distance/duration and the Longdo circuit breaker are unaffected", async () => {
+  const originalFetch = globalThis.fetch;
+  let osrmCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("router.project-osrm.org")) {
+      osrmCalls += 1;
+      return { ok: false, status: 500, json: async () => ({}) };
+    }
+    return { ok: true, text: async () => JSON.stringify({ data: [{ distance: 3000, interval: 300, id: 42 }] }) };
+  };
+
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K" });
+    const D = { lat: 13.9, lng: 100.6 };
+    const legs = await router.routeLegs([A, B, C, D], { speedKmh: 35, withGeometry: true });
+
+    assert.equal(legs.length, 3);
+    for (const leg of legs) {
+      assert.ok(leg.distanceKm > 0, "real distance from the guide call, unaffected by the OSRM failure");
+    }
+    // OSRM has its own circuit breaker, independent from Longdo's: the
+    // first leg's OSRM failure trips it, so later legs skip OSRM too.
+    assert.equal(legs[0].geometry, null);
+    assert.equal(legs[1].geometry, null);
+    assert.equal(legs[2].geometry, null);
+    assert.equal(osrmCalls, 1, "OSRM's own circuit breaker should skip later legs' geometry fetch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LongdoRouter: geometry is fetched from OSRM even when Longdo's distance/duration call fails for that leg", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("router.project-osrm.org")) {
+      return {
+        ok: true,
+        json: async () => ({
+          code: "Ok",
+          routes: [{ geometry: { coordinates: [[A.lng, A.lat], [B.lng, B.lat]] } }],
+        }),
+      };
+    }
+    return { ok: false, status: 429, text: async () => "" };
+  };
+
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K" });
+    const legs = await router.routeLegs([A, B], { speedKmh: 35, withGeometry: true });
+
+    assert.equal(legs.length, 1);
+    assert.ok(legs[0].distanceKm > 0, "falls back to the built-in estimate for distance/duration");
+    assert.deepEqual(legs[0].geometry, [
+      { lat: A.lat, lng: A.lng },
+      { lat: B.lat, lng: B.lng },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
