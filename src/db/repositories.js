@@ -18,6 +18,7 @@
  */
 
 import { query, withTransaction } from "./pool.js";
+import { buildGeocodeQuery } from "../routing/geocodeQuery.js";
 
 /**
  * Postgres caps a single statement at 65535 bind parameters (the wire protocol
@@ -795,27 +796,39 @@ export async function distinctHistoryDates(activeFilters = {}) {
 
 /**
  * Distinct customer_codes present in History but with NO Shop_Master row at
- * all, paired with the best available geocode query (StoreName preferred,
- * then CustomerName, then DC_Name) and a representative customer name.
- * Powers the backfill-geocoding job (`services/backfillService.js`), which
- * persists a real shops row for each of these.
+ * all, paired with the best available geocode query and a representative
+ * customer name. Powers the backfill-geocoding job
+ * (`services/backfillService.js`), which persists a real shops row for each
+ * of these.
+ *
+ * The geocode query is built by `buildGeocodeQuery` (see `routing/geocodeQuery.js`)
+ * from one representative row's customerName/dcName/storeName together — NOT
+ * independently COALESCE'd per column, since customerName's cleaning combines
+ * with that SAME row's dcName for area context, and mixing columns from
+ * different history rows for the same customer could pair a cleaned name
+ * with an unrelated DC.
  *
  * @returns {Promise<Array<{ customerCode:string, geocodeQuery:string|null, customerName:string|null }>>}
  */
 export async function findHistoryOnlyCustomers() {
   const result = await query(`
-    SELECT h.customer_code AS customer_code,
-           MIN(COALESCE(NULLIF(h.store_name, ''), NULLIF(h.customer_name, ''), NULLIF(h.dc_name, ''))) AS geocode_query,
-           MIN(NULLIF(h.customer_name, '')) AS customer_name
+    SELECT DISTINCT ON (h.customer_code)
+           h.customer_code AS customer_code,
+           NULLIF(h.customer_name, '') AS customer_name,
+           NULLIF(h.dc_name, '') AS dc_name,
+           NULLIF(h.store_name, '') AS store_name
       FROM history_entries h
       LEFT JOIN shops s ON s.customer_code = h.customer_code
      WHERE s.customer_code IS NULL
-     GROUP BY h.customer_code
-     ORDER BY h.customer_code
+     ORDER BY h.customer_code, h.id
   `);
   return result.rows.map((row) => ({
     customerCode: row.customer_code,
-    geocodeQuery: row.geocode_query,
+    geocodeQuery: buildGeocodeQuery({
+      customerName: row.customer_name,
+      dcName: row.dc_name,
+      storeName: row.store_name,
+    }),
     customerName: row.customer_name,
   }));
 }

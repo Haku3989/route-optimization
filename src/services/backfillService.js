@@ -10,17 +10,22 @@
  *
  * ## Dedup by QUERY, not by customer
  *
- * Most customers share their StoreName as the geocode query (many customers
- * per store), so on a real dataset tens of thousands of customer rows can
- * collapse into a few hundred UNIQUE queries. Geocoding is deduplicated on
- * the query string, and each unique query's result is applied to every
- * customer that shares it — without this, a large unfiltered dataset would
- * mean one real network call PER CUSTOMER, which is both slow and likely to
- * hit the geocoding provider's rate limits for no benefit (identical
- * queries would just return the identical result anyway).
+ * Geocoding is deduplicated on the query string returned by
+ * `findHistoryOnlyCustomers`/`findUnresolvedShops` (built by
+ * `routing/geocodeQuery.js` from CustomerName + DC area context — see its
+ * docs for why), and each unique query's result is applied to every customer
+ * that shares it — without this, a repeated query would mean a redundant
+ * network call for a result that would just come back identical. That query
+ * is effectively unique per customer, so on a real dataset this dedup mostly
+ * just protects against exact-name duplicates rather than collapsing tens of
+ * thousands of rows into a few hundred queries the way a shared StoreName
+ * query would — expect close to one real Longdo request per customer.
  *
  * `CONCURRENCY` unique queries are geocoded in parallel (a small worker
- * pool) to speed this up while staying gentle on the provider.
+ * pool) to speed this up while staying gentle on the provider — but at
+ * customer-name cardinality this can still mean many thousands of real
+ * requests and a correspondingly long run / real risk of hitting the
+ * provider's rate limits.
  *
  * ## Progress / status
  *

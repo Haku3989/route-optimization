@@ -31,6 +31,7 @@ import { createRouter } from "../routing/router.js";
 import { createGeocoder } from "../routing/geocoder.js";
 import { depot as sampleDepot } from "../data/sampleData.js";
 import { resolveDcByName } from "../data/dcList.js";
+import { buildGeocodeQuery } from "../routing/geocodeQuery.js";
 import * as realRepositories from "../db/repositories.js";
 
 /** Default depot reused from the existing sample scenario (Bangkok DC). */
@@ -233,21 +234,16 @@ export function applyHistoryFilters(joined, filters) {
 }
 
 /**
- * Build the best available query string to geocode a history row's own shop:
- * prefer the specific `storeName`, then `customerName`, then `dcName`. `null`
- * when the row carries none of them.
+ * Build the best available query string to geocode a history row's own shop.
+ * Delegates to `buildGeocodeQuery` — see `geocodeQuery.js` for the
+ * customerName-cleaning + DC-area-context strategy and why it replaced a
+ * plain storeName/customerName priority list.
  *
  * @param {object} history
  * @returns {string|null}
  */
 function geocodeQueryFromHistory(history) {
-  const candidates = [history?.storeName, history?.customerName, history?.dcName];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim() !== "") {
-      return candidate.trim();
-    }
-  }
-  return null;
+  return buildGeocodeQuery(history);
 }
 
 /**

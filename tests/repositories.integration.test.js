@@ -284,9 +284,14 @@ test(
     await repositories.insertHistoryEntries([
       // H1: has a shop row (S1) — must NOT show up as history-only.
       { customerCode: "S1", timeVisit: "2026-01-10T09:00:00", storeName: "Unresolved Shop" },
-      // H2/H3: no shop row at all — history-only, sharing one store name.
+      // H2/H3: no shop row at all, sharing one store name — but the geocode
+      // query prefers customerName, so they get DIFFERENT queries (each
+      // customer's own name is the geocodable one; the shared store name is
+      // an internal DC/unit code that rarely resolves via Longdo).
       { customerCode: "H2", timeVisit: "2026-01-10T09:00:00", storeName: "New Store", customerName: "Shop H2" },
       { customerCode: "H3", timeVisit: "2026-01-10T09:05:00", storeName: "New Store", customerName: "Shop H3" },
+      // H4: no customerName at all — falls back to the shared storeName.
+      { customerCode: "H4", timeVisit: "2026-01-10T09:10:00", storeName: "New Store" },
     ]);
     await repositories.insertPresaleEntries([
       { customerCode: "P1", customerName: "Presale One", deliveryDate: "2026-01-10", demand: 1 },
@@ -297,9 +302,12 @@ test(
     const historyOnly = await repositories.findHistoryOnlyCustomers();
     assert.deepEqual(
       historyOnly.map((c) => c.customerCode).sort(),
-      ["H2", "H3"]
+      ["H2", "H3", "H4"]
     );
-    for (const c of historyOnly) assert.equal(c.geocodeQuery, "New Store");
+    const byCode = Object.fromEntries(historyOnly.map((c) => [c.customerCode, c]));
+    assert.equal(byCode.H2.geocodeQuery, "Shop H2");
+    assert.equal(byCode.H3.geocodeQuery, "Shop H3");
+    assert.equal(byCode.H4.geocodeQuery, "New Store"); // no customerName -> falls back to storeName
 
     const unresolvedShops = await repositories.findUnresolvedShops();
     assert.equal(unresolvedShops.length, 1);

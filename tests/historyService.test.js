@@ -514,8 +514,9 @@ test("compareHistory: geocodes a customer's location when not found in Shop_Mast
 
   assert.ok(result.customers, `expected a comparison, got ${JSON.stringify(result)}`);
   assert.equal(result.customers.length, 2);
-  // Geocoded using the row's own storeName (preferred over customerName).
-  assert.deepEqual(geocodeCalls, ["Shop 1 Branch"]);
+  // Geocoded using the row's own customerName (preferred over storeName —
+  // an internal DC/unit code that rarely resolves via Longdo).
+  assert.deepEqual(geocodeCalls, ["Shop 1"]);
   const c1 = result.customers.find((r) => r.customerCode === "C1");
   assert.ok(c1);
 });
