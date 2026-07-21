@@ -1,6 +1,11 @@
 /* Farmhouse Admin — portal + User Setup console controller.
  *
- * Two views on one page:
+ * Three views on one page:
+ *   0. Setup (first run ONLY, before any admin exists) — POSTs to
+ *      /api/admin/setup, which bootstraps the very first admin and signs them
+ *      in. Shown instead of Login when GET /api/admin/setup-status reports
+ *      `needsSetup: true`; unreachable again once an admin exists (the
+ *      endpoint itself re-checks this server-side).
  *   1. Login (while unauthenticated) — POSTs to /api/admin/login and stores the
  *      bearer token in sessionStorage.
  *   2. Console (after authentication) — a "User setup" menu that lists, creates,
@@ -21,6 +26,11 @@ const TOKEN_KEY = "farmhouse.admin.token";
 let token = null;
 
 // --- DOM handles ------------------------------------------------------------
+const setupView = document.getElementById("setupView");
+const setupForm = document.getElementById("setupForm");
+const setupBtn = document.getElementById("setupBtn");
+const setupError = document.getElementById("setupError");
+
 const loginView = document.getElementById("loginView");
 const loginForm = document.getElementById("loginForm");
 const loginBtn = document.getElementById("loginBtn");
@@ -81,15 +91,40 @@ function clearToken() {
 }
 
 // --- View switching ---------------------------------------------------------
+function showSetup() {
+  consoleView.hidden = true;
+  loginView.hidden = true;
+  setupView.hidden = false;
+}
+
 function showLogin() {
   consoleView.hidden = true;
+  setupView.hidden = true;
   loginView.hidden = false;
 }
 
 function showConsole(username) {
+  setupView.hidden = true;
   loginView.hidden = true;
   consoleView.hidden = false;
   whoami.textContent = username ? `Signed in as ${username}` : "";
+}
+
+/** Decide between the Setup and Login views by asking the server whether an
+ * admin has ever been created. Defaults to Login on any failure (network
+ * error, unexpected response) so a transient hiccup never blocks sign-in. */
+async function showLoginOrSetup() {
+  try {
+    const res = await fetch("/api/admin/setup-status");
+    const data = res.ok ? await res.json() : null;
+    if (data && data.needsSetup) {
+      showSetup();
+      return;
+    }
+  } catch (_) {
+    /* fall through to login */
+  }
+  showLogin();
 }
 
 // --- Network helpers --------------------------------------------------------
@@ -109,6 +144,49 @@ async function authFetch(url, options = {}) {
     throw new Unauthorized();
   }
   return res;
+}
+
+// --- Setup (first run only) --------------------------------------------------
+async function handleSetup(event) {
+  event.preventDefault();
+  setupError.hidden = true;
+
+  const username = setupForm.elements.username.value;
+  const password = setupForm.elements.password.value;
+  const passwordConfirm = setupForm.elements.passwordConfirm.value;
+  if (password !== passwordConfirm) {
+    setupError.textContent = "Passwords do not match.";
+    setupError.hidden = false;
+    return;
+  }
+
+  setupBtn.disabled = true;
+  progress.start();
+  try {
+    const res = await fetch("/api/admin/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      progress.fail();
+      setupError.textContent = data.error || `Could not create the admin account (${res.status}).`;
+      setupError.hidden = false;
+      return;
+    }
+    setToken(data.token);
+    setupForm.reset();
+    showConsole(data.username);
+    await Promise.all([loadUsers(), loadStoreOptions()]);
+    progress.done();
+  } catch (_) {
+    progress.fail();
+    setupError.textContent = "Could not complete setup. Check your connection and try again.";
+    setupError.hidden = false;
+  } finally {
+    setupBtn.disabled = false;
+  }
 }
 
 // --- Login ------------------------------------------------------------------
@@ -357,7 +435,7 @@ function updateRouteFieldVisibility() {
 async function resumeSession() {
   const stored = getStoredToken();
   if (!stored) {
-    showLogin();
+    await showLoginOrSetup();
     return;
   }
   token = stored;
@@ -371,7 +449,7 @@ async function resumeSession() {
       await Promise.all([loadUsers(), loadStoreOptions()]);
     } else {
       clearToken();
-      showLogin();
+      await showLoginOrSetup();
     }
   } catch (_) {
     // Offline / server down — show login so the admin can retry.
@@ -379,6 +457,7 @@ async function resumeSession() {
   }
 }
 
+setupForm.addEventListener("submit", handleSetup);
 loginForm.addEventListener("submit", handleLogin);
 logoutBtn.addEventListener("click", handleLogout);
 addUserForm.addEventListener("submit", onAddUser);

@@ -1,6 +1,8 @@
 /**
  * Admin auth router (admin portal login).
  *
+ *   GET  /api/admin/setup-status  -> { needsSetup: boolean }
+ *   POST /api/admin/setup    { username, password } -> { token, username }
  *   POST /api/admin/login    { username, password } -> { token, username }
  *   GET  /api/admin/me        Authorization: Bearer <token> -> { username }
  *   POST /api/admin/logout    Authorization: Bearer <token> -> { ok: true }
@@ -13,6 +15,11 @@
  * `GET /me` lets the client confirm a stored token is still valid on load; it
  * returns the admin's username or 401 with no other data.
  *
+ * `GET /setup-status` and `POST /setup` are the first-run bootstrap: they are
+ * deliberately UNAUTHENTICATED (nobody can hold a token before the first admin
+ * exists) but `setupFirstAdmin` is strictly gated by the current admin count,
+ * not by any token — see the SECURITY NOTE on `adminService.js`.
+ *
  * SECURITY NOTE: this admin token currently gates only the admin portal page.
  * The planner/dashboard API endpoints remain unauthenticated in this prototype
  * — require this session on those routes before any non-prototype deployment.
@@ -20,7 +27,13 @@
 
 import { Router } from "express";
 
-import { login, getAdmin, logout } from "../services/adminService.js";
+import {
+  login,
+  getAdmin,
+  logout,
+  getSetupStatus,
+  setupFirstAdmin,
+} from "../services/adminService.js";
 import {
   listUsers,
   createUser,
@@ -40,6 +53,24 @@ function handleUserError(err, res, next) {
   }
   next(err);
 }
+
+router.get("/setup-status", async (_req, res, next) => {
+  try {
+    res.json(await getSetupStatus());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/setup", async (req, res, next) => {
+  try {
+    const { username, password } = req.body || {};
+    const result = await setupFirstAdmin(username, password);
+    res.json(result); // { token, username }
+  } catch (err) {
+    handleUserError(err, res, next);
+  }
+});
 
 router.post("/login", async (req, res, next) => {
   try {

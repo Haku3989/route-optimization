@@ -7,6 +7,57 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- Setup view: shown ONLY on first run, before any admin account exists. -->
+    <main id="setupView" class="auth-shell" hidden>
+      <section class="auth-card">
+        <div class="brand">
+          <span class="dot"></span>
+          <div>
+            <h1>Farmhouse Admin</h1>
+            <p>First-time setup — create the admin account</p>
+          </div>
+        </div>
+
+        <form id="setupForm" autocomplete="off">
+          <label for="setupUsername"
+            >Username
+            <input
+              id="setupUsername"
+              name="username"
+              type="text"
+              autocomplete="username"
+              required
+            />
+          </label>
+
+          <label for="setupPassword"
+            >Password
+            <input
+              id="setupPassword"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+
+          <label for="setupPasswordConfirm"
+            >Confirm password
+            <input
+              id="setupPasswordConfirm"
+              name="passwordConfirm"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+
+          <button id="setupBtn" type="submit" class="btn">Create admin account</button>
+          <p id="setupError" class="auth-error" role="alert" hidden></p>
+        </form>
+      </section>
+    </main>
+
     <!-- Login view: shown while unauthenticated. -->
     <main id="loginView" class="auth-shell">
       <section class="auth-card">

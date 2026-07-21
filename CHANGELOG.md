@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- First-run admin setup page (`public/admin.html`): when no admin account
+  exists yet, the login page shows a "Create admin account" form instead of
+  the sign-in form, so bootstrapping the first admin no longer requires
+  running `npm run db:seed:admin` from a terminal. `GET /api/admin/setup-status`
+  reports whether setup is needed; `POST /api/admin/setup`
+  (`adminService.setupFirstAdmin`) creates the account and signs the caller in
+  — deliberately unauthenticated (nobody can hold a token yet) but strictly
+  gated by the current admin count, so it can never create a second admin
+  once setup has been completed, regardless of who calls it.
+
 ## [1.5.0] - 2026-07-21
 
 ### Added
