@@ -30,7 +30,12 @@ import {
   handledUnauthorized,
   redirectToLogin,
 } from "./adminAuth.js";
-import { fetchFilterOptions, populateFilterForm, wireCascadingFilters } from "./filterOptions.js";
+import {
+  fetchFilterOptions,
+  populateFilterForm,
+  populateSelect,
+  wireCascadingFilters,
+} from "./filterOptions.js";
 
 // The planner is admin-gated: without a token the ingest/history/presale
 // endpoints return 401, so send the user to sign in before showing the page.
@@ -270,6 +275,9 @@ uploadForm.addEventListener("submit", (event) => {
     );
     // A history upload may introduce new filter values — refresh the dropdowns.
     refreshFilterOptions();
+    // Once all 3 workbook types are in, the server just started (or is still
+    // running) the background backfill-geocoding job — pick up its status.
+    startBackfillStatusPolling();
     resetUploadForm();
   });
 
@@ -345,7 +353,7 @@ historyForm.addEventListener("submit", async (event) => {
   historyBtn.textContent = "Comparing…";
   progress.start();
 
-  const filters = buildFilters(readFormInputs(historyForm));
+  const filters = historyFiltersFromForm(historyForm);
 
   try {
     const res = await fetch("/api/history/compare", {
@@ -509,6 +517,75 @@ function readFormInputs(form) {
   return inputs;
 }
 
+/** History filter criteria from `historyForm`, trimmed + empties dropped. The
+ * single "Day" select (see wireHistoryDayFilter) maps to BOTH
+ * deliveryDateFrom and deliveryDateTo — routes are calculated per store PER
+ * DAY, so the filter only ever offers one day at a time. */
+function historyFiltersFromForm(form) {
+  const raw = readFormInputs(form);
+  const day = raw.Day;
+  delete raw.Day;
+  if (day) {
+    raw.deliveryDateFrom = day;
+    raw.deliveryDateTo = day;
+  }
+  return buildFilters(raw);
+}
+
+// ---------------------------------------------------------------------------
+// Day picker (History comparison filter bar) — GET /api/history/dates,
+// scoped by the OTHER active categorical filters and refreshed whenever one
+// of them changes, so it only ever offers days that actually have data for
+// the current DC/Store/etc. selection.
+// ---------------------------------------------------------------------------
+
+const HISTORY_CATEGORICAL_FIELDS = ["DC_Name", "StoreName", "StoreGroup", "Store Area", "CustomerType"];
+
+function currentCategoricalFilters(form) {
+  const out = {};
+  for (const name of HISTORY_CATEGORICAL_FIELDS) {
+    const field = form.elements[name];
+    if (field && field.value) out[name] = field.value;
+  }
+  return out;
+}
+
+async function fetchHistoryDates(activeFilters) {
+  try {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(activeFilters)) {
+      if (typeof value === "string" && value.trim() !== "") params.set(key, value);
+    }
+    const qs = params.toString();
+    const res = await fetch(`/api/history/dates${qs ? `?${qs}` : ""}`, {
+      headers: { ...adminAuthHeader() },
+    });
+    if (handledUnauthorized(res)) return null;
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.dates) ? data.dates : [];
+  } catch (_) {
+    return null;
+  }
+}
+
+async function refreshHistoryDaySelect(form) {
+  const daySelect = form.elements["Day"];
+  if (!daySelect) return;
+  const dates = await fetchHistoryDates(currentCategoricalFilters(form));
+  if (dates) populateSelect(daySelect, dates);
+}
+
+/** Wire the Day select to refresh (scoped by the other filters) whenever any
+ * of them changes, plus an initial unfiltered populate. */
+function wireHistoryDayFilter(form) {
+  for (const name of HISTORY_CATEGORICAL_FIELDS) {
+    const field = form.elements[name];
+    if (field) field.addEventListener("change", () => refreshHistoryDaySelect(form));
+  }
+  refreshHistoryDaySelect(form);
+}
+
 // ---------------------------------------------------------------------------
 // Populate the categorical filter dropdowns from the uploaded history data.
 // Reset to the full unfiltered lists after each successful upload (new data
@@ -525,5 +602,85 @@ async function refreshFilterOptions() {
   populateFilterForm(presaleForm, options);
 }
 
+// ---------------------------------------------------------------------------
+// Background processing status (backfill geocoding) — GET /api/ingest/status
+// polled every BACKFILL_POLL_MS while a run is "running", so the UI reflects
+// progress in real time without the user refreshing the page. Checked once
+// on load too, in case a previous upload's job is still in flight.
+// ---------------------------------------------------------------------------
+
+const backfillStatusEl = document.getElementById("backfillStatus");
+const backfillStatusLabel = document.getElementById("backfillStatusLabel");
+const backfillStatusCounts = document.getElementById("backfillStatusCounts");
+const backfillStatusDetail = document.getElementById("backfillStatusDetail");
+const backfillProgressFill = document.getElementById("backfillProgressFill");
+
+const BACKFILL_POLL_MS = 2000;
+let backfillPollTimer = null;
+
+function renderBackfillStatus(status) {
+  if (!status || status.state === "idle") {
+    backfillStatusEl.hidden = true;
+    return;
+  }
+
+  backfillStatusEl.hidden = false;
+  backfillStatusEl.classList.remove("done", "error");
+
+  if (status.state === "running") {
+    backfillStatusLabel.textContent = "Processing uploaded data — resolving customer locations…";
+    const pct =
+      status.queriesTotal > 0
+        ? Math.round((status.queriesProcessed / status.queriesTotal) * 100)
+        : 0;
+    backfillProgressFill.style.width = `${pct}%`;
+    backfillStatusCounts.textContent = `${status.queriesProcessed}/${status.queriesTotal} locations checked`;
+    backfillStatusDetail.textContent = `${status.customersTotal} customer record(s) queued this run.`;
+  } else if (status.state === "done") {
+    backfillStatusEl.classList.add("done");
+    backfillStatusLabel.textContent = "Processing complete";
+    backfillProgressFill.style.width = "100%";
+    backfillStatusCounts.textContent = `${status.customersResolved} resolved, ${status.customersFailed} unresolved`;
+    backfillStatusDetail.textContent = status.finishedAt
+      ? `Finished ${new Date(status.finishedAt).toLocaleTimeString()}.`
+      : "";
+  } else if (status.state === "error") {
+    backfillStatusEl.classList.add("error");
+    backfillStatusLabel.textContent = "Processing failed";
+    backfillStatusDetail.textContent = status.error || "Unknown error.";
+  }
+}
+
+async function fetchBackfillStatus() {
+  try {
+    const res = await fetch("/api/ingest/status", { headers: { ...adminAuthHeader() } });
+    if (handledUnauthorized(res)) return null;
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function startBackfillStatusPolling() {
+  if (backfillPollTimer) return; // a poll loop is already running
+  const status = await fetchBackfillStatus();
+  renderBackfillStatus(status);
+  if (!status || status.state !== "running") return;
+
+  backfillPollTimer = setInterval(async () => {
+    const s = await fetchBackfillStatus();
+    renderBackfillStatus(s);
+    if (!s || s.state !== "running") {
+      clearInterval(backfillPollTimer);
+      backfillPollTimer = null;
+    }
+  }, BACKFILL_POLL_MS);
+}
+
 wireCascadingFilters(historyForm);
 wireCascadingFilters(presaleForm);
+// Day picker: only offers days that have data for the current selection.
+wireHistoryDayFilter(historyForm);
+// Pick up an already-running (or just-finished) job from a previous upload.
+startBackfillStatusPolling();

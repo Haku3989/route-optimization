@@ -496,6 +496,60 @@ a.btn {
   margin-bottom: 12px;
 }
 
+/* Dashboard "overview" fallback (browse-by-DC / browse-by-store dropdowns),
+ * shown instead of a bare guard message when no filter narrows the History
+ * comparison down to a routable set. */
+.overview-panel {
+  margin-top: 4px;
+}
+
+.overview-field {
+  margin-bottom: 12px;
+}
+
+.overview-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.overview-field select {
+  width: 100%;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 26px 7px 9px;
+  font-size: 13px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%237c6a58' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+  color-scheme: light;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.overview-field select:hover {
+  background-color: var(--glass);
+  border-color: var(--gold);
+}
+
+.overview-field select:focus {
+  outline: none;
+  border-color: var(--barn);
+  box-shadow: 0 0 0 3px rgba(194, 58, 36, 0.15);
+}
+
+.overview-field select option {
+  background: var(--wheat);
+  color: var(--text);
+}
+
 /* --------------------------------------------------------------------------
  * Auth pages (admin sign-in) — centered frosted-glass card
  * ------------------------------------------------------------------------ */

@@ -302,3 +302,57 @@ table.data tbody tr:hover {
 .upload-log .fail {
   color: var(--danger);
 }
+
+/* Background backfill-geocoding status (real-time, polled) */
+.backfill-status {
+  margin: 14px 0;
+  padding: 12px 14px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+}
+
+.backfill-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.backfill-status-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.backfill-status-label.done {
+  color: var(--sage);
+}
+
+.backfill-status-label.error {
+  color: var(--danger);
+}
+
+.backfill-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(97, 58, 30, 0.12);
+  overflow: hidden;
+}
+
+.backfill-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--barn);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.backfill-status.done .backfill-progress-fill {
+  background: var(--sage);
+}
+
+.backfill-status.error .backfill-progress-fill {
+  background: var(--danger);
+}

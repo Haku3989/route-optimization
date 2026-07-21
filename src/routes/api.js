@@ -11,6 +11,7 @@
  *   POST /api/ingest/upload      -> parse + persist an uploaded workbook
  *   POST /api/history/compare    -> historical vs optimized order comparison
  *   POST /api/presale/plan       -> optimized plan from the presale list
+ *   GET  /api/database/*         -> DB viewer: summary + paginated raw rows
  *   POST /api/driver/login       -> driver authentication (bearer token)
  *   GET  /api/driver/route       -> the authenticated driver's assigned route
  */
@@ -24,6 +25,7 @@ import historyRoutes from "./historyRoutes.js";
 import presaleRoutes from "./presaleRoutes.js";
 import driverRoutes from "./driverRoutes.js";
 import adminRoutes from "./adminRoutes.js";
+import databaseRoutes from "./databaseRoutes.js";
 import { requireAdmin } from "./requireAdmin.js";
 
 const router = Router();
@@ -145,6 +147,7 @@ function validatePayload({ depot, vehicles, orders }) {
 router.use("/ingest", requireAdmin, ingestRoutes);
 router.use("/history", requireAdmin, historyRoutes);
 router.use("/presale", requireAdmin, presaleRoutes);
+router.use("/database", requireAdmin, databaseRoutes);
 router.use("/driver", driverRoutes);
 router.use("/admin", adminRoutes);
 

@@ -29,6 +29,7 @@
           </button>
         </div>
         <a class="btn secondary" href="plan.html">Route planner input</a>
+        <a class="btn secondary" href="database.html">Database</a>
         <a class="btn secondary" href="admin.html">Admin</a>
         <button id="optimizeBtn" class="btn">Optimize routes</button>
       </div>
@@ -41,8 +42,9 @@
         <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
         <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
         <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
-        <label>Date from<input type="date" name="deliveryDateFrom" /></label>
-        <label>Date to<input type="date" name="deliveryDateTo" /></label>
+        <label
+          >Day<select id="historyDay" name="Day"><option value="">(choose a day)</option></select></label
+        >
       </div>
       <div class="filter-actions">
         <button type="submit" class="btn">Apply filters</button>

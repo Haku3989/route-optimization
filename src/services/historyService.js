@@ -86,17 +86,40 @@ function isAbsent(value) {
 }
 
 /**
- * Normalise a date-ish value (Date, ISO string, "YYYY-MM-DD") to epoch ms, or
- * `null` when it is missing / unparseable.
+ * Normalise a date-ish value (a `Date` as returned for a Postgres DATE
+ * column, or a "YYYY-MM-DD"-prefixed string) to a `"YYYY-MM-DD"` key, or
+ * `null` when missing/unparseable. String keys compare correctly with plain
+ * `<`/`>` since ISO-format dates sort lexicographically the same as
+ * chronologically.
+ *
+ * IMPORTANT: reads a `Date`'s LOCAL year/month/day, never UTC. node-postgres's
+ * default DATE-column parser builds the JS `Date` from the server's LOCAL
+ * timezone (e.g. `new Date(2026, 6, 17)` for a stored `'2026-07-17'`), so
+ * recovering the intended calendar date requires the SAME local-time
+ * reading. Using UTC getters here silently shifts the date by the server's
+ * UTC offset (e.g. reading "2026-07-16" for a "2026-07-17" value at UTC+7) —
+ * harmless-looking for a wide date RANGE, but it turns a single-day filter
+ * (`deliveryDateFrom === deliveryDateTo`, as the dashboard's day-picker
+ * always sends) into matching almost nothing, since the shifted invoice date
+ * falls just outside the requested day's boundaries.
  */
-function toTimeMs(value) {
+function toDateKey(value) {
   if (value == null || value === "") return null;
   if (value instanceof Date) {
-    const t = value.getTime();
-    return Number.isNaN(t) ? null : t;
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
-  const t = new Date(value).getTime();
-  return Number.isNaN(t) ? null : t;
+  const isoDateOnly = /^(\d{4}-\d{2}-\d{2})/.exec(String(value).trim());
+  if (isoDateOnly) return isoDateOnly[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -182,8 +205,8 @@ export function applyHistoryFilters(joined, filters) {
   if (!Array.isArray(joined)) return [];
   if (!filters) return joined.slice();
 
-  const fromMs = toTimeMs(filters.deliveryDateFrom);
-  const toMs = toTimeMs(filters.deliveryDateTo);
+  const fromKey = toDateKey(filters.deliveryDateFrom);
+  const toKey = toDateKey(filters.deliveryDateTo);
   const hasFrom = !isAbsent(filters.deliveryDateFrom);
   const hasTo = !isAbsent(filters.deliveryDateTo);
 
@@ -197,12 +220,12 @@ export function applyHistoryFilters(joined, filters) {
     }
 
     if (hasFrom || hasTo) {
-      const invoiceMs = toTimeMs(history.invoiceDate);
+      const invoiceKey = toDateKey(history.invoiceDate);
       // A supplied date-range criterion cannot be satisfied by a row without a
       // parseable delivered date.
-      if (invoiceMs == null) return false;
-      if (hasFrom && fromMs != null && invoiceMs < fromMs) return false;
-      if (hasTo && toMs != null && invoiceMs > toMs) return false;
+      if (invoiceKey == null) return false;
+      if (hasFrom && fromKey != null && invoiceKey < fromKey) return false;
+      if (hasTo && toKey != null && invoiceKey > toKey) return false;
     }
 
     return true;
@@ -228,26 +251,18 @@ function geocodeQueryFromHistory(history) {
 }
 
 /**
- * Resolve a single history row's location: the joined Shop_Master coordinates
- * win when present (source "master"); otherwise — e.g. the `Customer_Code`
- * has no matching Shop_Master row at all, or its coordinates never resolved —
- * fall back to geocoding the row's own store/customer name (source
- * "geocoded"), mirroring the same master -> geocode precedence Shop_Master
- * ingestion uses (`routing/geocoder.js`). `location` is `null` when neither
- * step resolves.
+ * Geocode a single unresolved history row's location from its own
+ * store/customer name (source "geocoded"), memoizing repeat lookups for the
+ * same query within one comparison (the same store is typically visited many
+ * times across the history rows). `null` when there is no usable query or the
+ * geocoder itself returns nothing.
  *
  * @param {object} history
- * @param {object|null} shop
- * @param {{ geocode:(q:string)=>Promise<{lat:number,lng:number}|null> }|null} geocoder
- * @param {Map<string, {lat:number,lng:number}|null>} cache  memoizes repeat
- *   geocode lookups for the same query within one comparison (the same store
- *   is typically visited many times across the history rows).
+ * @param {{ geocode:(q:string)=>Promise<{lat:number,lng:number}|null> }} geocoder
+ * @param {Map<string, {lat:number,lng:number}|null>} cache
  * @returns {Promise<{lat:number,lng:number}|null>}
  */
-async function resolveHistoryLocation(history, shop, geocoder, cache) {
-  if (shop && shop.location) return shop.location;
-  if (!geocoder) return null;
-
+async function geocodeHistoryLocation(history, geocoder, cache) {
   const query = geocodeQueryFromHistory(history);
   if (!query) return null;
 
@@ -257,48 +272,77 @@ async function resolveHistoryLocation(history, shop, geocoder, cache) {
   return geocoded ?? null;
 }
 
+/** Record `history`'s resolved `location` into `byCode`, keeping the EARLIEST
+ * `timeVisit` per customer as the ordering key (Requirement 3.1). */
+function addResolvedCustomer(byCode, history, location, shop) {
+  const code = history.customerCode;
+  const timeMs = visitOrderKey(history.timeVisit);
+
+  const existing = byCode.get(code);
+  if (!existing || timeMs < existing.timeMs) {
+    byCode.set(code, {
+      customerCode: code,
+      customer: history.customerName ?? null,
+      timeMs,
+      location,
+      serviceTimeMin: shop?.serviceTimeMin ?? null,
+      openTime: shop?.openTime ?? null,
+      closeTime: shop?.closeTime ?? null,
+    });
+  }
+}
+
 /**
  * Reduce filtered records to the DISTINCT customers that can actually be
- * routed, keyed by `customerCode`, keeping the EARLIEST `timeVisit` per
- * customer as the ordering key. A customer's location comes from the joined
- * Shop_Master row when present; when the `Customer_Code` is not found in the
- * master file (or its coordinates never resolved there), it is geocoded from
- * its own store/customer name instead of being dropped. The returned list is
- * sorted ascending by that earliest `timeVisit`, so it is the historical
- * visit order (Requirement 3.1).
+ * routed, keyed by `customerCode`. A customer's location comes from the
+ * joined Shop_Master row when present; when the `Customer_Code` is not found
+ * in the master file (or its coordinates never resolved there), it is
+ * geocoded from its own store/customer name instead of being dropped. The
+ * returned list is sorted ascending by the earliest `timeVisit` per customer,
+ * so it is the historical visit order (Requirement 3.1).
+ *
+ * Two passes, deliberately: master-resolved locations first (fast, no
+ * network), THEN geocoding for the rest — but ONLY when the master-only
+ * count is still within `maxCustomers`. An unfiltered request over a large
+ * dataset can have tens of thousands of rows with no Shop_Master match; if
+ * the master-only count already exceeds the cap, the comparison will be
+ * rejected either way, so geocoding every remaining row would mean thousands
+ * of real, sequential network calls for a result that gets thrown away.
+ * Skipping that keeps an over-cap request fast and network-free, exactly the
+ * case the dashboard's "too many customers" overview fallback needs to
+ * render quickly.
  *
  * @param {Array<{ history: object, shop: object|null }>} records
  * @param {{ geocode:(q:string)=>Promise<{lat:number,lng:number}|null> }|null} [geocoder]
+ * @param {number} [maxCustomers] see above; defaults to unbounded (always geocode)
  * @returns {Promise<Array<{ customerCode: string, customer: string, timeMs: number,
  *   location: {lat:number,lng:number}, serviceTimeMin: number|null,
  *   openTime: string|null, closeTime: string|null }>>}
  */
-async function distinctResolvableCustomers(records, geocoder = null) {
+async function distinctResolvableCustomers(records, geocoder = null, maxCustomers = Infinity) {
   const byCode = new Map();
-  const geocodeCache = new Map();
+  const unresolved = [];
 
+  // Pass 1 — master-resolved locations only.
   for (const item of records) {
     const history = item && item.history;
     if (!history) continue;
     const shop = item && item.shop;
 
-    const location = await resolveHistoryLocation(history, shop, geocoder, geocodeCache);
-    if (!location) continue; // not routable — neither master nor geocoding resolved it
+    if (shop && shop.location) {
+      addResolvedCustomer(byCode, history, shop.location, shop);
+    } else {
+      unresolved.push(history);
+    }
+  }
 
-    const code = history.customerCode;
-    const timeMs = visitOrderKey(history.timeVisit);
-
-    const existing = byCode.get(code);
-    if (!existing || timeMs < existing.timeMs) {
-      byCode.set(code, {
-        customerCode: code,
-        customer: history.customerName ?? null,
-        timeMs,
-        location,
-        serviceTimeMin: shop?.serviceTimeMin ?? null,
-        openTime: shop?.openTime ?? null,
-        closeTime: shop?.closeTime ?? null,
-      });
+  // Pass 2 — geocode the rest, but only when it could still change the
+  // outcome (see function doc).
+  if (geocoder && byCode.size <= maxCustomers) {
+    const geocodeCache = new Map();
+    for (const history of unresolved) {
+      const location = await geocodeHistoryLocation(history, geocoder, geocodeCache);
+      if (location) addResolvedCustomer(byCode, history, location, null);
     }
   }
 
@@ -396,7 +440,11 @@ export async function compareHistory({
   }
 
   // Historical order = distinct routable customers, ascending by TIME_VISIT.
-  const historicalCustomers = await distinctResolvableCustomers(records, geocoder);
+  const historicalCustomers = await distinctResolvableCustomers(
+    records,
+    geocoder,
+    MAX_COMPARISON_CUSTOMERS
+  );
 
   if (historicalCustomers.length === 0) {
     // `records` is non-empty here (the length===0 guard above already handled
@@ -489,4 +537,37 @@ export async function compareHistory({
 
 function round(n) {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Overview counts of the uploaded History data, grouped by DC_Name and by
+ * StoreName (busiest first). Used by the dashboard as a fallback "big
+ * picture" view when no filter has narrowed the comparison down to a
+ * routable set — e.g. when `compareHistory` reports the "too many
+ * customers" guard message — so the user sees the shape of the whole
+ * dataset instead of just that guard text, and can pick a DC/store to
+ * filter into.
+ *
+ * @param {{ repositories?: object }} [deps]
+ * @returns {Promise<{
+ *   byDc: Array<{ dcName:string, visits:number, customers:number }>,
+ *   byStore: Array<{ storeName:string, dcName:string|null, visits:number, customers:number }>
+ * }>}
+ */
+export async function getHistoryOverview(deps = {}) {
+  const repositories = deps.repositories || realRepositories;
+  return repositories.historyOverview();
+}
+
+/**
+ * Distinct History dates that have data, scoped by the given categorical
+ * filters (day-picker cascading — see `repositories.distinctHistoryDates`).
+ *
+ * @param {object} [activeFilters]
+ * @param {{ repositories?: object }} [deps]
+ * @returns {Promise<string[]>} ascending `YYYY-MM-DD` strings
+ */
+export async function getHistoryDates(activeFilters = {}, deps = {}) {
+  const repositories = deps.repositories || realRepositories;
+  return repositories.distinctHistoryDates(activeFilters);
 }

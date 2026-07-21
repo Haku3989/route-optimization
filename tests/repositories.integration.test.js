@@ -229,3 +229,105 @@ test(
     assert.deepEqual(scopedToStoreA1.storeGroup, ["Group X"]);
   }
 );
+
+test(
+  "historyOverview groups visit/customer counts by DC_Name and by StoreName",
+  { skip: DB_SKIP },
+  async () => {
+    await repositories.insertHistoryEntries([
+      // DC_A / Store A1: 2 visits, 2 distinct customers.
+      { customerCode: "C1", timeVisit: "2026-01-10T09:00:00", dcName: "DC_A", storeName: "Store A1" },
+      { customerCode: "C2", timeVisit: "2026-01-10T09:05:00", dcName: "DC_A", storeName: "Store A1" },
+      // DC_A / Store A2: 2 visits, but only 1 distinct customer (C1 again).
+      { customerCode: "C1", timeVisit: "2026-01-11T09:00:00", dcName: "DC_A", storeName: "Store A2" },
+      { customerCode: "C3", timeVisit: "2026-01-11T09:05:00", dcName: "DC_A", storeName: "Store A2" },
+      // DC_B / Store B1: 1 visit, 1 customer.
+      { customerCode: "C4", timeVisit: "2026-01-12T09:00:00", dcName: "DC_B", storeName: "Store B1" },
+    ]);
+
+    const overview = await repositories.historyOverview();
+
+    // byDc: DC_A has 4 visits across {C1,C2,C3} = 3 distinct customers; DC_B has 1/1.
+    const dcA = overview.byDc.find((d) => d.dcName === "DC_A");
+    const dcB = overview.byDc.find((d) => d.dcName === "DC_B");
+    assert.deepEqual(dcA, { dcName: "DC_A", visits: 4, customers: 3 });
+    assert.deepEqual(dcB, { dcName: "DC_B", visits: 1, customers: 1 });
+
+    // byStore: each store's own visit/customer counts, with its owning DC attached.
+    const storeA1 = overview.byStore.find((s) => s.storeName === "Store A1");
+    const storeA2 = overview.byStore.find((s) => s.storeName === "Store A2");
+    assert.deepEqual(storeA1, { storeName: "Store A1", dcName: "DC_A", visits: 2, customers: 2 });
+    assert.deepEqual(storeA2, { storeName: "Store A2", dcName: "DC_A", visits: 2, customers: 2 });
+
+    // Sorted busiest-first (by customers desc): DC_A (3) before DC_B (1).
+    assert.deepEqual(overview.byDc.map((d) => d.dcName), ["DC_A", "DC_B"]);
+  }
+);
+
+test(
+  "findHistoryOnlyCustomers / findUnresolvedShops / hasAllWorkbookTypes power the backfill job",
+  { skip: DB_SKIP },
+  async () => {
+    assert.equal(await repositories.hasAllWorkbookTypes(), false);
+
+    await repositories.upsertShops([
+      {
+        customerCode: "S1", // has a shop row already, but coords never resolved
+        shopName: "Unresolved Shop",
+        location: null,
+        coordSource: "unresolved",
+        serviceTimeMin: 12,
+        openTime: "09:00",
+        closeTime: "17:00",
+      },
+    ]);
+    await repositories.insertHistoryEntries([
+      // H1: has a shop row (S1) — must NOT show up as history-only.
+      { customerCode: "S1", timeVisit: "2026-01-10T09:00:00", storeName: "Unresolved Shop" },
+      // H2/H3: no shop row at all — history-only, sharing one store name.
+      { customerCode: "H2", timeVisit: "2026-01-10T09:00:00", storeName: "New Store", customerName: "Shop H2" },
+      { customerCode: "H3", timeVisit: "2026-01-10T09:05:00", storeName: "New Store", customerName: "Shop H3" },
+    ]);
+    await repositories.insertPresaleEntries([
+      { customerCode: "P1", customerName: "Presale One", deliveryDate: "2026-01-10", demand: 1 },
+    ]);
+
+    assert.equal(await repositories.hasAllWorkbookTypes(), true);
+
+    const historyOnly = await repositories.findHistoryOnlyCustomers();
+    assert.deepEqual(
+      historyOnly.map((c) => c.customerCode).sort(),
+      ["H2", "H3"]
+    );
+    for (const c of historyOnly) assert.equal(c.geocodeQuery, "New Store");
+
+    const unresolvedShops = await repositories.findUnresolvedShops();
+    assert.equal(unresolvedShops.length, 1);
+    assert.equal(unresolvedShops[0].customerCode, "S1");
+    assert.equal(unresolvedShops[0].geocodeQuery, "Unresolved Shop");
+    assert.equal(unresolvedShops[0].serviceTimeMin, 12);
+    assert.equal(unresolvedShops[0].openTime, "09:00");
+  }
+);
+
+test(
+  "distinctHistoryDates returns only days that have data, scoped by active filters",
+  { skip: DB_SKIP },
+  async () => {
+    await repositories.insertHistoryEntries([
+      { customerCode: "C1", timeVisit: "09:00", invoiceDate: "2026-01-10", dcName: "DC_A", storeName: "Store A1" },
+      { customerCode: "C2", timeVisit: "09:00", invoiceDate: "2026-01-11", dcName: "DC_A", storeName: "Store A1" },
+      { customerCode: "C3", timeVisit: "09:00", invoiceDate: "2026-01-12", dcName: "DC_A", storeName: "Store A2" },
+      { customerCode: "C4", timeVisit: "09:00", invoiceDate: "2026-01-20", dcName: "DC_B", storeName: "Store B1" },
+    ]);
+
+    const all = await repositories.distinctHistoryDates();
+    assert.deepEqual(all, ["2026-01-10", "2026-01-11", "2026-01-12", "2026-01-20"]);
+
+    const scopedToDcA = await repositories.distinctHistoryDates({ dcName: "DC_A" });
+    assert.deepEqual(scopedToDcA, ["2026-01-10", "2026-01-11", "2026-01-12"]);
+
+    const scopedToStoreA1 = await repositories.distinctHistoryDates({ storeName: "Store A1" });
+    assert.deepEqual(scopedToStoreA1, ["2026-01-10", "2026-01-11"]);
+  }
+);

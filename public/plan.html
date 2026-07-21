@@ -18,6 +18,7 @@
       </div>
       <div class="topbar-actions">
         <a class="btn secondary" href="index.html">← Dashboard</a>
+        <a class="btn secondary" href="database.html">Database</a>
         <a class="btn secondary" href="admin.html">Admin</a>
       </div>
     </header>
@@ -54,6 +55,20 @@
 
         <div id="uploadResult" class="result" hidden></div>
 
+        <!-- Background processing status (backfill geocoding), shown once all
+             three workbook types have been uploaded and polled in real time
+             while a run is in progress — see wireBackfillStatusPolling(). -->
+        <div id="backfillStatus" class="backfill-status" hidden>
+          <div class="backfill-status-row">
+            <span id="backfillStatusLabel" class="backfill-status-label">Processing…</span>
+            <span id="backfillStatusCounts" class="hint"></span>
+          </div>
+          <div class="backfill-progress-track">
+            <div id="backfillProgressFill" class="backfill-progress-fill"></div>
+          </div>
+          <p id="backfillStatusDetail" class="hint"></p>
+        </div>
+
         <h3>Upload log (this session)</h3>
         <ul id="uploadLog" class="upload-log">
           <li class="hint">No uploads yet.</li>
@@ -74,8 +89,9 @@
           <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
           <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
           <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
-          <label>Delivery date from<input type="date" name="deliveryDateFrom" /></label>
-          <label>Delivery date to<input type="date" name="deliveryDateTo" /></label>
+          <label
+            >Day<select name="Day"><option value="">(choose a day)</option></select></label
+          >
           <button id="historyBtn" type="submit" class="btn">Compare</button>
         </form>
 

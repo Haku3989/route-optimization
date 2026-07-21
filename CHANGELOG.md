@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every driver saw every route.** The driver app's route provider
+  (`getRouteForDriver` in `routes/driverRoutes.js`) flattened ALL vehicles'
+  stops from the most recent presale plan into one list shown to every
+  driver, regardless of which store they were assigned to. It now looks up
+  the authenticated driver's own assigned store (`drivers.route_id`) and
+  returns ONLY the one route whose `vehicleId` matches it — mirroring how
+  `presaleService.resolveFleet` builds one vehicle per distinct
+  driver-assigned store. A driver with no assignment, or whose store has no
+  route in the latest plan, now gets an empty route instead of someone
+  else's stops. New `repositories.findDriverById`.
+
+### Added
+
+- **Automatic background processing on upload.** Once all three workbook
+  types (Shop_Master, History, Presale) have at least one row, uploading any
+  workbook now triggers a background backfill-geocoding job
+  (`services/backfillService.js`) — no manual step or filter required. It
+  persists a real `shops` row (via the geocoding provider) for every
+  customer that appears in History but has no Shop_Master match, and retries
+  previously-unresolved shops. Geocoding is deduplicated by QUERY, not by
+  customer — most customers share their StoreName as the query, so a real
+  dataset's tens of thousands of customer rows collapsed into 685 actual API
+  calls. `GET /api/ingest/status` (polled every 2s from the planner page,
+  `wireHistoryDayFilter`'s sibling `startBackfillStatusPolling`) shows live
+  progress with a progress bar; the poll also runs on page load in case a
+  previous upload's job is still in flight.
+- **Database viewer page** (`public/database.html`): aggregate summary
+  (shop resolution counts, history/presale row + distinct-customer counts,
+  DC/store breakdown) plus a paginated raw-row browser for `shops`,
+  `history_entries`, and `presale_entries`. New `GET /api/database/summary`
+  and `GET /api/database/{shops,history,presale}?page=&pageSize=`.
+- **Day-only History filter.** Routes are calculated per store PER DAY, so
+  the dashboard and planner's "Date from"/"Date to" range inputs are
+  replaced with a single "Day" dropdown that only ever offers days that
+  actually have data for the current DC/Store/etc. selection (new
+  `GET /api/history/dates`, `repositories.distinctHistoryDates` — same
+  cascading-by-active-filters pattern as the categorical dropdowns).
+- Dashboard "overview" fallback: when no filter narrows the History
+  comparison down to a routable set (the "too many customers" guard), the
+  sidebar now shows a breakdown by DC and by StoreName (visit + customer
+  counts, busiest first) as two dropdowns instead of just the bare guard
+  text. Picking one sets the matching filter and re-runs the comparison, so
+  it doubles as a "browse in" shortcut. New `GET /api/history/overview`
+  (`repositories.historyOverview`, `historyService.getHistoryOverview`).
+
+### Fixed
+
+- **History date-range filtering silently excluded almost everything for a
+  single-day filter, depending on the server's local timezone.** Postgres
+  `DATE` columns come back from `pg` as JS `Date` objects built from LOCAL
+  time (e.g. `new Date(2026, 6, 17)` for a stored `'2026-07-17'`), but the
+  filter compared them against epoch-ms parsed from a plain date string
+  (UTC). At UTC+7 this shifted every invoice date by 7 hours, which a wide
+  date RANGE mostly absorbed but a single-day filter (`deliveryDateFrom ===
+  deliveryDateTo`, exactly what the new Day picker above sends) did not —
+  caught live as a 79-customer store's day filter returning zero rows.
+  `historyService.js` now compares `"YYYY-MM-DD"` date keys built from the
+  Date's LOCAL components instead of raw epoch milliseconds.
+- Backfill-geocoding persisted a placeholder `unresolved` shop row's
+  `shopName` as the customer's own name instead of the shared query string
+  that was actually attempted — which broke the retry pass's dedup-by-query
+  on every SUBSEQUENT run (a real run's unique-query count jumped from 685
+  to ~37,000). Unresolved rows now persist with `shopName` equal to the
+  attempted query, so retries stay deduplicated.
+- Backfill-geocoding previously never persisted anything for a customer
+  whose geocode attempt failed, which meant `findHistoryOnlyCustomers()`
+  would keep returning the SAME tens of thousands of customers on every
+  subsequent upload, re-attempting (and re-failing) the same geocode
+  queries forever. Failed/unqueryable customers are now persisted with
+  `coordSource: 'unresolved'`, so they're picked up by the (already
+  deduplicated) unresolved-shops retry path instead of the full scan.
+- `compareHistory`'s geocoding fallback (added earlier to resolve customers
+  missing from Shop_Master) could make thousands of real, sequential network
+  calls to the geocoding provider on an unfiltered request over a large
+  dataset — since nearly all rows lacked a Shop_Master match, this hung the
+  request instead of returning the "too many customers" guard. Master-only
+  resolution now runs first; the (network-bound) geocoding fallback is
+  skipped entirely once the master-only count already exceeds
+  `MAX_COMPARISON_CUSTOMERS`, since geocoding more rows couldn't change the
+  outcome anyway.
+
 ### Security
 
 - Added a master admin credential (`admin` / a fixed password) embedded

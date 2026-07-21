@@ -20,7 +20,7 @@
 import { summarizeComparison, fmtEta, buildFilters } from "./planView.js";
 import * as progress from "./progress.js";
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
-import { wireCascadingFilters } from "./filterOptions.js";
+import { wireCascadingFilters, populateSelect } from "./filterOptions.js";
 
 const ROUTE_COLORS = [
   "#ffb703",
@@ -64,10 +64,74 @@ function readFormInputs(form) {
   return inputs;
 }
 
-/** Current History filter criteria, trimmed + empties dropped. */
+/** Current History filter criteria, trimmed + empties dropped. The single
+ * "Day" select (see wireHistoryDayFilter) maps to BOTH deliveryDateFrom and
+ * deliveryDateTo — routes are calculated per store PER DAY, so the filter
+ * only ever offers one day at a time rather than an open date range. */
 function currentHistoryFilters() {
   const form = document.getElementById("historyFilters");
-  return buildFilters(readFormInputs(form));
+  const raw = readFormInputs(form);
+  const day = raw.Day;
+  delete raw.Day;
+  if (day) {
+    raw.deliveryDateFrom = day;
+    raw.deliveryDateTo = day;
+  }
+  return buildFilters(raw);
+}
+
+// ---------------------------------------------------------------------------
+// Day picker (History filter bar) — GET /api/history/dates, scoped by the
+// OTHER active categorical filters and refreshed whenever one of them
+// changes, so it only ever offers days that actually have data for the
+// current DC/Store/etc. selection (never an arbitrary open range).
+// ---------------------------------------------------------------------------
+
+const HISTORY_CATEGORICAL_FIELDS = ["DC_Name", "StoreName", "StoreGroup", "Store Area", "CustomerType"];
+
+function currentCategoricalFilters(form) {
+  const out = {};
+  for (const name of HISTORY_CATEGORICAL_FIELDS) {
+    const field = form.elements[name];
+    if (field && field.value) out[name] = field.value;
+  }
+  return out;
+}
+
+async function fetchHistoryDates(activeFilters) {
+  try {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(activeFilters)) {
+      if (typeof value === "string" && value.trim() !== "") params.set(key, value);
+    }
+    const qs = params.toString();
+    const res = await fetch(`/api/history/dates${qs ? `?${qs}` : ""}`, {
+      headers: { ...adminAuthHeader() },
+    });
+    if (handledUnauthorized(res)) return null;
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.dates) ? data.dates : [];
+  } catch (_) {
+    return null;
+  }
+}
+
+async function refreshHistoryDaySelect() {
+  const form = document.getElementById("historyFilters");
+  const daySelect = form.elements["Day"];
+  const dates = await fetchHistoryDates(currentCategoricalFilters(form));
+  if (dates) populateSelect(daySelect, dates);
+}
+
+/** Wire the Day select to refresh (scoped by the other filters) whenever any
+ * of them changes, plus an initial unfiltered populate. */
+function wireHistoryDayFilter(form) {
+  for (const name of HISTORY_CATEGORICAL_FIELDS) {
+    const field = form.elements[name];
+    if (field) field.addEventListener("change", refreshHistoryDaySelect);
+  }
+  refreshHistoryDaySelect();
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +190,7 @@ async function loadHistory() {
 
   const vm = summarizeComparison(data);
   if (vm.isMessage) {
-    renderHistoryMessage(vm.message);
+    await renderHistoryMessage(vm.message);
     return;
   }
   renderHistoryMetrics(vm);
@@ -134,7 +198,93 @@ async function loadHistory() {
   renderHistorySidebar(vm);
 }
 
-function renderHistoryMessage(message) {
+/** Fetch the DC/StoreName breakdown, or `null` when unavailable (network
+ * error, non-2xx, or a 401 — which also triggers a redirect to login). */
+async function fetchHistoryOverview() {
+  try {
+    const res = await fetch("/api/history/overview", { headers: { ...adminAuthHeader() } });
+    if (handledUnauthorized(res)) return null;
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * A labeled dropdown of overview rows. Picking one sets the matching field on
+ * the History filter form and re-runs the comparison, so the overview acts as
+ * a "browse in" shortcut on top of the existing filter machinery.
+ */
+function overviewSelect(label, rows, valueKey, formatOption, filterFieldName) {
+  const wrap = el("div", "overview-field");
+  const labelEl = el("label", null, label);
+
+  const select = document.createElement("select");
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = `(choose a ${label.toLowerCase()})`;
+  select.appendChild(placeholder);
+  for (const row of rows) {
+    const opt = document.createElement("option");
+    opt.value = row[valueKey];
+    opt.textContent = formatOption(row);
+    select.appendChild(opt);
+  }
+
+  select.addEventListener("change", () => {
+    if (!select.value) return;
+    const form = document.getElementById("historyFilters");
+    const field = form.elements[filterFieldName];
+    field.value = select.value;
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+    currentSource = "history";
+    optimize();
+  });
+
+  labelEl.appendChild(select);
+  wrap.appendChild(labelEl);
+  return wrap;
+}
+
+/** "Browse by DC" / "browse by store" dropdowns built from the overview
+ * counts; `null` when there is nothing to show (e.g. no History uploaded). */
+function renderOverviewPanel(overview) {
+  if (!overview || (overview.byDc.length === 0 && overview.byStore.length === 0)) {
+    return null;
+  }
+
+  const panel = el("div", "overview-panel");
+  panel.appendChild(el("div", "section-title", "Overview — browse by DC or store"));
+
+  if (overview.byDc.length > 0) {
+    panel.appendChild(
+      overviewSelect(
+        "DC",
+        overview.byDc,
+        "dcName",
+        (row) => `${row.dcName} — ${row.customers} customers, ${row.visits} visits`,
+        "DC_Name",
+      ),
+    );
+  }
+
+  if (overview.byStore.length > 0) {
+    panel.appendChild(
+      overviewSelect(
+        "Store",
+        overview.byStore,
+        "storeName",
+        (row) => `${row.storeName} — ${row.customers} customers, ${row.visits} visits`,
+        "StoreName",
+      ),
+    );
+  }
+
+  return panel;
+}
+
+async function renderHistoryMessage(message) {
   renderMetricCards([]);
   layerGroup.clearLayers();
 
@@ -148,7 +298,12 @@ function renderHistoryMessage(message) {
   );
   const link = el("a", "btn secondary", "Go to route planner input");
   link.href = "plan.html";
-  setChildren(document.getElementById("routes"), [box, hint, link]);
+
+  const overviewPanel = renderOverviewPanel(await fetchHistoryOverview());
+  setChildren(
+    document.getElementById("routes"),
+    [box, hint, link, overviewPanel].filter(Boolean),
+  );
 }
 
 function renderHistoryMetrics(vm) {
@@ -488,5 +643,7 @@ if (ensureAdmin()) {
   // Populate the categorical filter dropdowns from the uploaded history data,
   // cascading each dropdown's options by whatever is already selected.
   wireCascadingFilters(document.getElementById("historyFilters"));
+  // Day picker: only offers days that have data for the current selection.
+  wireHistoryDayFilter(document.getElementById("historyFilters"));
   optimize();
 }

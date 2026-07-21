@@ -5,6 +5,8 @@ import fc from "fast-check";
 import {
   compareHistory,
   applyHistoryFilters,
+  getHistoryOverview,
+  getHistoryDates,
   HISTORY_MESSAGES,
 } from "../src/services/historyService.js";
 import { routeDistanceKm } from "../src/optimizer/vrp.js";
@@ -319,6 +321,52 @@ test("Property 9: history filtering is sound and empty-filter is identity", () =
 });
 
 // ---------------------------------------------------------------------------
+// Regression: a real Postgres DATE column comes back from `pg` as a JS Date
+// constructed in the server's LOCAL timezone (e.g. `new Date(2026, 6, 17)`
+// for a stored '2026-07-17'), NOT UTC midnight. A single-day filter
+// (deliveryDateFrom === deliveryDateTo, exactly what the dashboard's day
+// picker sends) must still match that row regardless of the process's local
+// timezone — reading UTC getters here previously shifted the date by the
+// server's UTC offset and excluded almost everything (caught via a live
+// Bangkok/UTC+7 run: a day filter on a 79-customer store returned zero rows).
+// ---------------------------------------------------------------------------
+
+test("applyHistoryFilters: a single-day filter matches a real pg-style local-midnight Date, in any timezone", () => {
+  // Exactly how node-postgres's default DATE parser builds the JS Date for a
+  // stored '2026-07-17': local-time components, not UTC.
+  const pgStyleLocalMidnight = new Date(2026, 6, 17);
+  // The day-picker sends the SAME calendar day as a plain string for both bounds.
+  const dayString = "2026-07-17";
+
+  const joined = [
+    { history: { customerCode: "C1", invoiceDate: pgStyleLocalMidnight } },
+  ];
+
+  const result = applyHistoryFilters(joined, {
+    deliveryDateFrom: dayString,
+    deliveryDateTo: dayString,
+  });
+
+  assert.equal(result.length, 1, "the row's own calendar day must match a same-day filter");
+});
+
+test("applyHistoryFilters: a single-day filter excludes a real pg-style Date for an ADJACENT day", () => {
+  const pgStyleLocalMidnight = new Date(2026, 6, 16); // one day earlier
+  const dayString = "2026-07-17";
+
+  const joined = [
+    { history: { customerCode: "C1", invoiceDate: pgStyleLocalMidnight } },
+  ];
+
+  const result = applyHistoryFilters(joined, {
+    deliveryDateFrom: dayString,
+    deliveryDateTo: dayString,
+  });
+
+  assert.equal(result.length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // Example tests (task 10.6) — count / no-match messages
 // ---------------------------------------------------------------------------
 
@@ -504,6 +552,58 @@ test("compareHistory: still excludes a customer when geocoding also fails to res
   // Only C2 is routable, so the comparison still needs two customers.
   assert.deepEqual(result, { message: HISTORY_MESSAGES.NEEDS_TWO_CUSTOMERS });
 });
+
+test(
+  "compareHistory: skips geocoding entirely once the master-only count already exceeds the cap",
+  async () => {
+    // Regression: an unfiltered request over a large dataset can have far more
+    // unresolved rows than the comparison cap. Geocoding every one of them
+    // would mean thousands of real, sequential network calls for a result
+    // that gets rejected anyway — the geocoder must never be called in that
+    // case. MAX_COMPARISON_CUSTOMERS is 150, so 151 MASTER-resolvable rows
+    // alone already exceeds it, before any unresolved row is even considered.
+    const resolvable = Array.from({ length: 151 }, (_, i) => ({
+      history: {
+        customerCode: `R${i}`,
+        customerName: `Shop ${i}`,
+        timeVisit: `2026-01-01T${String(9 + (i % 10)).padStart(2, "0")}:00:00Z`,
+        invoiceDate: "2026-01-01",
+      },
+      shop: { location: { lat: 13.7 + i * 0.001, lng: 100.5 }, coordSource: "master" },
+    }));
+    const unresolved = {
+      history: {
+        customerCode: "UNRESOLVED",
+        customerName: "Should never be geocoded",
+        storeName: "Some Store",
+        timeVisit: "2026-01-01T09:00:00Z",
+        invoiceDate: "2026-01-01",
+      },
+      shop: null,
+    };
+
+    let geocodeCalls = 0;
+    const spyGeocoder = {
+      async geocode() {
+        geocodeCalls += 1;
+        return { lat: 13.9, lng: 100.6 };
+      },
+    };
+
+    const result = await compareHistory({
+      depot: DEPOT,
+      deps: {
+        repositories: fakeRepos([...resolvable, unresolved]),
+        router: fakeRouter,
+        geocoder: spyGeocoder,
+      },
+    });
+
+    assert.equal(geocodeCalls, 0, "geocoder must not be called once already over the cap");
+    assert.ok(result.message, `expected a guard message, got ${JSON.stringify(result).slice(0, 200)}`);
+    assert.match(result.message, /Too many customers \(151\)/);
+  }
+);
 
 test("compareHistory: two resolvable customers produce a full comparison", async () => {
   const joined = [
@@ -691,4 +791,37 @@ test("compareHistory: falls back to the sample depot when no depot is given and 
   assert.ok(result.customers);
   // Matches src/data/sampleData.js's depot (the module-level DEFAULT_DEPOT).
   assert.deepEqual(result.depot, { lat: 13.7563, lng: 100.5018 });
+});
+
+// ---------------------------------------------------------------------------
+// getHistoryOverview — thin passthrough to repositories.historyOverview()
+// ---------------------------------------------------------------------------
+
+test("getHistoryOverview: delegates to repositories.historyOverview()", async () => {
+  const overview = {
+    byDc: [{ dcName: "DC_A", visits: 10, customers: 4 }],
+    byStore: [{ storeName: "Store 1", dcName: "DC_A", visits: 10, customers: 4 }],
+  };
+  const repositories = { historyOverview: async () => overview };
+
+  const result = await getHistoryOverview({ repositories });
+  assert.deepEqual(result, overview);
+});
+
+// ---------------------------------------------------------------------------
+// getHistoryDates — thin passthrough to repositories.distinctHistoryDates()
+// ---------------------------------------------------------------------------
+
+test("getHistoryDates: delegates to repositories.distinctHistoryDates() with the given filters", async () => {
+  let receivedFilters = null;
+  const repositories = {
+    distinctHistoryDates: async (filters) => {
+      receivedFilters = filters;
+      return ["2026-01-10", "2026-01-11"];
+    },
+  };
+
+  const result = await getHistoryDates({ storeName: "Store A" }, { repositories });
+  assert.deepEqual(result, ["2026-01-10", "2026-01-11"]);
+  assert.deepEqual(receivedFilters, { storeName: "Store A" });
 });
