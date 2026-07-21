@@ -38,6 +38,25 @@
  * rejected regardless of who calls it. The login page checks
  * `getSetupStatus` on load to decide whether to show the setup form or the
  * normal sign-in form.
+ *
+ * ## Master admin credential (embedded in source — explicit user request)
+ *
+ * `MASTER_ADMIN_USERNAME` / `MASTER_ADMIN_PASSWORD_HASH` below let `admin`
+ * always sign in with a fixed password WITHOUT any `admins` row existing —
+ * checked before the database lookup in `login`, so it works even against an
+ * empty/unseeded database.
+ *
+ * SECURITY TRADEOFF (stated explicitly, at the requester's informed
+ * insistence after being warned): this credential is permanently visible to
+ * anyone with read access to this repository or its git history, and cannot
+ * be rotated without a code change + redeploy — unlike every other password
+ * in this system, which is scrypt-hashed and stored ONLY in the database
+ * (see `seedAdmins.js`, `userService.createUser`). Only the scrypt HASH is
+ * embedded here (not the raw password), and its session is tracked ONLY
+ * in-memory (`masterAdminTokens`, never written to `admin_sessions`) so it
+ * mints a fresh random token per login and never leaves a row in the
+ * database — but the password itself is not a secret once this file is
+ * readable. Do not reuse `AdminFH2026!` for anything else.
  */
 
 import * as realRepositories from "../db/repositories.js";
@@ -48,6 +67,16 @@ import {
 } from "../auth/credentials.js";
 import { createUser, UserError } from "./userService.js";
 
+const MASTER_ADMIN_USERNAME = "admin";
+// scrypt hash of "AdminFH2026!" (see the module header SECURITY TRADEOFF note).
+const MASTER_ADMIN_PASSWORD_HASH =
+  "scrypt$fefb6e7b39c80220989bc9505437ffb5$1996232c3857b17f25be7216ea7c7b5483d006fb2c7b219546bec01d6518ffc42a378d3d68b7f791e442a4c2bbf5190e9284f87e62b20ea371215ed49fbcf668";
+
+/** Bearer tokens for active master-admin sessions. In-memory only — never
+ * persisted, so they vanish on every process restart just like the rest of
+ * this credential's state. */
+const masterAdminTokens = new Set();
+
 /**
  * Authenticate an admin and issue a persisted bearer token.
  *
@@ -55,6 +84,9 @@ import { createUser, UserError } from "./userService.js";
  * malformed hash) this throws a generic {@link AuthError} whose message reveals
  * neither field. A token is only minted and persisted after a successful
  * password check, so a failed login never creates a session.
+ *
+ * The master admin credential (see module header) is checked FIRST and, when
+ * it matches, returns immediately without ever touching the database.
  *
  * @param {string} username submitted admin username
  * @param {string} password submitted plaintext password
@@ -66,6 +98,12 @@ export async function login(username, password, deps = {}) {
   const repositories = deps.repositories || realRepositories;
   const verify = deps.verifyPassword || realVerifyPassword;
   const mintToken = deps.newToken || realNewToken;
+
+  if (username === MASTER_ADMIN_USERNAME && verify(password, MASTER_ADMIN_PASSWORD_HASH)) {
+    const token = mintToken();
+    masterAdminTokens.add(token);
+    return { token, username: MASTER_ADMIN_USERNAME };
+  }
 
   const admin = await repositories.findAdminByUsername(username);
   // Unknown username -> generic denial (do not reveal that the user is unknown).
@@ -87,17 +125,23 @@ export async function login(username, password, deps = {}) {
  * a currently valid session.
  *
  * Returns `null` when the token is missing / not a non-empty string, no session
- * row exists for it, or the session has an `expiresAt` at/before now.
+ * row exists for it, or the session has an `expiresAt` at/before now. A
+ * master-admin token (see module header) resolves in-memory without ever
+ * touching the database.
  *
  * @param {unknown} token the bearer token to resolve
  * @param {{ repositories?: object }} [deps]
- * @returns {Promise<{ adminId: number, username: string }|null>}
+ * @returns {Promise<{ adminId: number|null, username: string }|null>}
  */
 export async function resolveSession(token, deps = {}) {
   const repositories = deps.repositories || realRepositories;
 
   if (typeof token !== "string" || token.length === 0) {
     return null;
+  }
+
+  if (masterAdminTokens.has(token)) {
+    return { adminId: null, username: MASTER_ADMIN_USERNAME };
   }
 
   const session = await repositories.findAdminSession(token);
@@ -140,7 +184,8 @@ export async function getAdmin(token, deps = {}) {
 
 /**
  * Invalidate an admin session (logout). Deleting an absent/blank token is a
- * no-op, so logout is always safe to call.
+ * no-op, so logout is always safe to call. A master-admin token (see module
+ * header) is removed from memory without touching the database.
  *
  * @param {unknown} token the bearer token to invalidate
  * @param {{ repositories?: object }} [deps]
@@ -149,6 +194,7 @@ export async function getAdmin(token, deps = {}) {
 export async function logout(token, deps = {}) {
   const repositories = deps.repositories || realRepositories;
   if (typeof token === "string" && token.length > 0) {
+    if (masterAdminTokens.delete(token)) return;
     await repositories.deleteAdminSession(token);
   }
 }

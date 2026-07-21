@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Added a master admin credential (`admin` / a fixed password) embedded
+  directly in `src/services/adminService.js`, at the requester's explicit
+  informed insistence after being warned of the tradeoff. It signs in without
+  any `admins` database row and its session token is tracked only in-memory
+  (never written to `admin_sessions`). Unlike every other password in this
+  system, this one is scrypt-hashed but the hash itself is permanently
+  visible to anyone with read access to this repository/its git history and
+  cannot be rotated without a code change. A real DB-backed `admin` account
+  (if one exists) is unaffected and still authenticates with its own
+  password — the master credential is only checked first, as an additional
+  path.
+
 ### Added
 
 - First-run admin setup page (`public/admin.html`): when no admin account
