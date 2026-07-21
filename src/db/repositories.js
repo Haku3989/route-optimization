@@ -834,26 +834,47 @@ export async function findHistoryOnlyCustomers() {
 }
 
 /**
- * Existing shop rows whose coordinates never resolved (`lat IS NULL`), with
- * their own name as the geocode query plus their other fields so a backfill
- * UPDATE can carry them through unchanged (only `lat`/`lng`/`coord_source`
- * should change here).
+ * Existing shop rows whose coordinates never resolved (`lat IS NULL`), with a
+ * FRESHLY rebuilt geocode query (via `buildGeocodeQuery`, rejoined against
+ * `history_entries` for that customer's current customerName/dcName/storeName)
+ * plus their other fields so a backfill UPDATE can carry them through
+ * unchanged (only `lat`/`lng`/`coord_source` should change here).
+ *
+ * Rebuilding instead of reusing the persisted `shop_name` matters: `shop_name`
+ * on an unresolved row is whatever query an EARLIER backfill run attempted
+ * (see `services/backfillService.js`) — if the query-building strategy has
+ * since changed (e.g. this session's switch to CustomerName + DC area), a
+ * retry that just reused the old stale value would keep re-attempting a query
+ * we already know changed for a reason, never actually trying the new one. A
+ * shop with no matching history row left (e.g. its customer's history rows
+ * were removed) falls back to the persisted `shop_name`.
  *
  * @returns {Promise<Array<{ customerCode:string, geocodeQuery:string|null,
  *   shopName:string|null, serviceTimeMin:number|null, openTime:string|null, closeTime:string|null }>>}
  */
 export async function findUnresolvedShops() {
   const result = await query(`
-    SELECT customer_code, NULLIF(shop_name, '') AS shop_name,
-           service_time_min, open_time, close_time
-      FROM shops
-     WHERE lat IS NULL
-     ORDER BY customer_code
+    SELECT s.customer_code AS customer_code,
+           NULLIF(s.shop_name, '') AS shop_name,
+           s.service_time_min, s.open_time, s.close_time,
+           h.customer_name AS customer_name, h.dc_name AS dc_name, h.store_name AS store_name
+      FROM shops s
+      LEFT JOIN LATERAL (
+        SELECT customer_name, dc_name, store_name
+          FROM history_entries
+         WHERE customer_code = s.customer_code
+         ORDER BY id
+         LIMIT 1
+      ) h ON true
+     WHERE s.lat IS NULL
+     ORDER BY s.customer_code
   `);
   return result.rows.map((row) => ({
     customerCode: row.customer_code,
-    geocodeQuery: row.shop_name,
-    shopName: row.shop_name,
+    geocodeQuery:
+      buildGeocodeQuery({ customerName: row.customer_name, dcName: row.dc_name, storeName: row.store_name }) ??
+      row.shop_name,
+    shopName: row.customer_name || row.shop_name,
     serviceTimeMin: row.service_time_min,
     openTime: row.open_time,
     closeTime: row.close_time,
