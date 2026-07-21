@@ -27,6 +27,7 @@ import presaleRoutes from "./presaleRoutes.js";
 import driverRoutes from "./driverRoutes.js";
 import adminRoutes from "./adminRoutes.js";
 import databaseRoutes from "./databaseRoutes.js";
+import deliveryReportRoutes from "./deliveryReportRoutes.js";
 import { requireAdmin } from "./requireAdmin.js";
 
 const router = Router();
@@ -149,6 +150,7 @@ router.use("/ingest", requireAdmin, ingestRoutes);
 router.use("/history", requireAdmin, historyRoutes);
 router.use("/presale", requireAdmin, presaleRoutes);
 router.use("/database", requireAdmin, databaseRoutes);
+router.use("/delivery-report", requireAdmin, deliveryReportRoutes);
 router.use("/driver", driverRoutes);
 router.use("/admin", adminRoutes);
 

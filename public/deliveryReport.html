@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Delivery Report</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="plan.css" />
+    <link rel="stylesheet" href="database.css" />
+    <link rel="stylesheet" href="deliveryReport.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <div>
+          <h1>Daily Delivery Report</h1>
+          <p>Actual delivery time vs. the AI-optimized ETA, per day</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <a class="btn secondary" href="index.html">← Dashboard</a>
+        <a class="btn secondary" href="plan.html">Planner</a>
+        <a class="btn secondary" href="database.html">Database</a>
+        <a class="btn secondary" href="admin.html">Admin</a>
+      </div>
+    </header>
+
+    <form id="reportFilters" class="filter-bar">
+      <div class="filter-fields">
+        <label>DC_Name<select name="DC_Name"><option value="">(any)</option></select></label>
+        <label>StoreName<select name="StoreName"><option value="">(any)</option></select></label>
+        <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
+        <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
+        <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
+        <label>Day<select name="Day"><option value="">(choose a day)</option></select></label>
+      </div>
+      <div class="filter-actions">
+        <button type="submit" class="btn">Run report</button>
+        <button type="button" id="clearFilters" class="btn secondary">Clear</button>
+      </div>
+    </form>
+
+    <main class="plan-layout">
+      <section class="panel" id="messagePanel" hidden>
+        <p class="message-box" id="messageText"></p>
+      </section>
+
+      <section class="panel" id="summaryPanel" hidden>
+        <h2>Summary — <span id="summaryDay"></span></h2>
+        <p class="hint" id="toleranceHint"></p>
+        <div class="metrics" id="summaryMetrics"></div>
+
+        <h3>By store</h3>
+        <div id="byStoreTable"></div>
+
+        <div class="db-panel-header" id="skippedHeader" hidden>
+          <h3>Skipped stores</h3>
+        </div>
+        <div id="skippedStoresTable"></div>
+      </section>
+
+      <section class="panel" id="detailPanel" hidden>
+        <div class="db-panel-header">
+          <h2>Detail</h2>
+        </div>
+        <div id="detailTable"></div>
+      </section>
+
+      <section class="panel" id="excludedPanel" hidden>
+        <div class="db-panel-header">
+          <h2>Excluded</h2>
+        </div>
+        <div id="excludedTable"></div>
+      </section>
+    </main>
+
+    <script type="module" src="deliveryReport.js"></script>
+  </body>
+</html>

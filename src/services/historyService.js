@@ -35,7 +35,7 @@ import { buildGeocodeQuery } from "../routing/geocodeQuery.js";
 import * as realRepositories from "../db/repositories.js";
 
 /** Default depot reused from the existing sample scenario (Bangkok DC). */
-const DEFAULT_DEPOT = { lat: sampleDepot.lat, lng: sampleDepot.lng };
+export const DEFAULT_DEPOT = { lat: sampleDepot.lat, lng: sampleDepot.lng };
 
 /** Default notional single vehicle; capacity is sized to the customer set. */
 const DEFAULT_SPEED_KMH = 35;
@@ -48,7 +48,7 @@ const DEFAULT_SPEED_KMH = 35;
  * A route-sized cap keeps the comparison both fast and meaningful — the caller
  * narrows the set with filters (DC, store, area, date range) to stay under it.
  */
-const MAX_COMPARISON_CUSTOMERS = 150;
+export const MAX_COMPARISON_CUSTOMERS = 150;
 
 /**
  * Guard messages returned (not thrown) for the count / no-match cases. Exported
@@ -167,7 +167,7 @@ function visitOrderKey(value) {
  * @param {object} [filters]
  * @returns {{lat:number,lng:number}|null}
  */
-function depotFromFilters(filters) {
+export function depotFromFilters(filters) {
   if (!filters) return null;
   const dc = resolveDcByName(filters.StoreName) ?? resolveDcByName(filters.DC_Name);
   return dc ? { lat: dc.lat, lng: dc.lng } : null;
@@ -212,7 +212,7 @@ export function hasAnyFilter(filters) {
  * @param {object} filters
  * @returns {string|null} `"YYYY-MM-DD"`
  */
-function singleDayKey(filters) {
+export function singleDayKey(filters) {
   const from = toDateKey(filters?.deliveryDateFrom);
   const to = toDateKey(filters?.deliveryDateTo);
   return from && from === to ? from : null;
@@ -285,7 +285,12 @@ async function geocodeHistoryLocation(history, geocoder, cache) {
 }
 
 /** Record `history`'s resolved `location` into `byCode`, keeping the EARLIEST
- * `timeVisit` per customer as the ordering key (Requirement 3.1). */
+ * `timeVisit` per customer as the ordering key (Requirement 3.1).
+ *
+ * `timeVisitRaw`/`invoiceDate` retain the row's own raw values (additive —
+ * `compareHistory`'s own use of this descriptor only reads the other fields)
+ * so callers like `deliveryReportService.js` can recover the actual recorded
+ * visit time, which `timeMs` (a sort key, not a real clock value) discards. */
 function addResolvedCustomer(byCode, history, location, shop) {
   const code = history.customerCode;
   const timeMs = visitOrderKey(history.timeVisit);
@@ -300,6 +305,8 @@ function addResolvedCustomer(byCode, history, location, shop) {
       serviceTimeMin: shop?.serviceTimeMin ?? null,
       openTime: shop?.openTime ?? null,
       closeTime: shop?.closeTime ?? null,
+      timeVisitRaw: history.timeVisit ?? null,
+      invoiceDate: history.invoiceDate ?? null,
     });
   }
 }
@@ -331,7 +338,7 @@ function addResolvedCustomer(byCode, history, location, shop) {
  *   location: {lat:number,lng:number}, serviceTimeMin: number|null,
  *   openTime: string|null, closeTime: string|null }>>}
  */
-async function distinctResolvableCustomers(records, geocoder = null, maxCustomers = Infinity) {
+export async function distinctResolvableCustomers(records, geocoder = null, maxCustomers = Infinity) {
   const byCode = new Map();
   const unresolved = [];
 
@@ -366,7 +373,7 @@ async function distinctResolvableCustomers(records, geocoder = null, maxCustomer
  * is a notional `1` per customer; combined with a capacity equal to the customer
  * count this guarantees a single route holds the whole set, isolating ordering.
  */
-function toOrder(customer) {
+export function toOrder(customer) {
   return {
     id: customer.customerCode,
     customer: customer.customer,
@@ -383,7 +390,7 @@ function toOrder(customer) {
  * ask the router for the depot -> stops -> depot leg metrics, then derive ETAs
  * from those legs. Returns a `Map<customerCode, etaISO>`.
  */
-async function etasByCode(router, depot, stops, departAt, speedKmh) {
+export async function etasByCode(router, depot, stops, departAt, speedKmh) {
   if (stops.length === 0) return new Map();
   const points = [depot, ...stops.map((s) => s.location), depot];
   const legs = await router.routeLegs(points, { speedKmh });

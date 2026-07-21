@@ -1,0 +1,17 @@
+/* Daily Delivery Report — status badges. Reuses styles.css/plan.css/database.css
+ * tokens and layout patterns (.panel, .metrics, .db-table-wrap, .db-panel-header). */
+
+.status-early {
+  color: var(--info);
+  font-weight: 600;
+}
+
+.status-on-time {
+  color: var(--sage);
+  font-weight: 600;
+}
+
+.status-late {
+  color: var(--danger);
+  font-weight: 600;
+}

@@ -19,6 +19,7 @@
   --gold: #e2a13a; /* wheat gold accent */
   --sage: #5f8f57; /* farm green */
   --danger: #c0392b;
+  --info: #3a7ca5; /* early-delivery blue — distinct from --gold (used for "current stop") */
 
   --text: #3a2b21; /* dark warm brown */
   --muted: #7c6a58; /* warm taupe */
