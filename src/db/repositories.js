@@ -540,6 +540,79 @@ export async function deleteSession(token) {
 }
 
 // ---------------------------------------------------------------------------
+// Live driver-side delivery completion tracking — see schema.sql's
+// delivery_completions comment for why a completion snapshots its own ETA
+// rather than referencing the (volatile, in-memory) presale-plan cache.
+// ---------------------------------------------------------------------------
+
+/**
+ * Record (or update) a driver's completion of one stop. Idempotent via
+ * `UNIQUE (driver_id, customer_code, day)` — a double-tap/retry for the same
+ * customer on the same day updates the existing row rather than duplicating.
+ *
+ * @param {{ driverId:number, routeId:string, customerCode:string,
+ *   customerName?:string|null, scheduledEta?:Date|string|null,
+ *   completedAt:Date|string, deviationMin?:number|null,
+ *   category?:string|null, day:string }} record
+ * @returns {Promise<void>}
+ */
+export async function upsertDeliveryCompletion(record) {
+  await query(
+    `INSERT INTO delivery_completions
+       (driver_id, route_id, customer_code, customer_name, scheduled_eta,
+        completed_at, deviation_min, category, day)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (driver_id, customer_code, day) DO UPDATE SET
+       route_id = EXCLUDED.route_id,
+       customer_name = EXCLUDED.customer_name,
+       scheduled_eta = EXCLUDED.scheduled_eta,
+       completed_at = EXCLUDED.completed_at,
+       deviation_min = EXCLUDED.deviation_min,
+       category = EXCLUDED.category`,
+    [
+      record.driverId,
+      record.routeId,
+      record.customerCode,
+      record.customerName ?? null,
+      record.scheduledEta ?? null,
+      record.completedAt,
+      record.deviationMin ?? null,
+      record.category ?? null,
+      record.day,
+    ]
+  );
+}
+
+/**
+ * A driver's completions for one local day, ascending by completion time —
+ * feeds both the end-of-day summary and `getDriverRoute`'s "is this stop
+ * already completed" check (so a page refresh doesn't lose completion state).
+ *
+ * @param {number} driverId
+ * @param {string} day `"YYYY-MM-DD"`
+ * @returns {Promise<Array<{ customerCode:string, customerName:string|null,
+ *   scheduledEta:Date|null, completedAt:Date, deviationMin:number|null,
+ *   category:string|null }>>}
+ */
+export async function deliveryCompletionsForDriverDay(driverId, day) {
+  const result = await query(
+    `SELECT customer_code, customer_name, scheduled_eta, completed_at, deviation_min, category
+       FROM delivery_completions
+      WHERE driver_id = $1 AND day = $2
+      ORDER BY completed_at`,
+    [driverId, day]
+  );
+  return result.rows.map((row) => ({
+    customerCode: row.customer_code,
+    customerName: row.customer_name ?? null,
+    scheduledEta: row.scheduled_eta ?? null,
+    completedAt: row.completed_at,
+    deviationMin: row.deviation_min ?? null,
+    category: row.category ?? null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Admin auth — mirrors the driver auth helpers above for the admin portal.
 // findAdminByUsername, insertAdminSession, findAdminSession, deleteAdminSession
 // ---------------------------------------------------------------------------

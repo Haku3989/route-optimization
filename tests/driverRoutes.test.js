@@ -7,9 +7,16 @@ function fakePlan(routes) {
   return { plan: { routes } };
 }
 
+/** Every fake repository needs this now that getRouteForDriver checks for
+ * already-completed stops; default to "nothing completed yet". */
+function noCompletions() {
+  return async () => [];
+}
+
 test("getRouteForDriver: returns ONLY the route matching the driver's own assigned store", async () => {
   const repositories = {
     findDriverById: async (id) => ({ id, username: "driver1", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
   };
   const latestPlan = () =>
     fakePlan([
@@ -34,6 +41,7 @@ test("getRouteForDriver: returns ONLY the route matching the driver's own assign
 test("getRouteForDriver: a driver never sees another driver's stops", async () => {
   const repositories = {
     findDriverById: async () => ({ id: 2, username: "driver2", routeId: "Store B" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
   };
   const latestPlan = () =>
     fakePlan([
@@ -91,6 +99,7 @@ test("getRouteForDriver: no presale plan built yet -> empty route", async () => 
 test("getRouteForDriver: stops are re-sequenced from 1 for the driver's own route only", async () => {
   const repositories = {
     findDriverById: async () => ({ id: 6, username: "driver6", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: noCompletions(),
   };
   const latestPlan = () =>
     fakePlan([
@@ -106,4 +115,53 @@ test("getRouteForDriver: stops are re-sequenced from 1 for the driver's own rout
   const route = await getRouteForDriver(6, { repositories, getLatestPresalePlan: latestPlan });
 
   assert.deepEqual(route.stops.map((s) => s.sequence), [1, 2]);
+});
+
+test("getRouteForDriver: a persisted completion marks its stop completed and carries category/deviationMin, so a refresh doesn't lose it", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 7, username: "driver7", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: async (driverId, day) => {
+      assert.equal(driverId, 7);
+      assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+      return [{ customerCode: "C1", category: "late", deviationMin: 20 }];
+    },
+  };
+  const latestPlan = () =>
+    fakePlan([
+      {
+        vehicleId: "Store A",
+        stops: [
+          { orderId: "C1", customer: "Shop 1", eta: "2026-01-01T08:00:00Z" },
+          { orderId: "C2", customer: "Shop 2", eta: "2026-01-01T09:00:00Z" },
+        ],
+      },
+    ]);
+
+  const route = await getRouteForDriver(7, { repositories, getLatestPresalePlan: latestPlan });
+
+  const c1 = route.stops.find((s) => s.customerCode === "C1");
+  const c2 = route.stops.find((s) => s.customerCode === "C2");
+  assert.equal(c1.completed, true);
+  assert.equal(c1.category, "late");
+  assert.equal(c1.deviationMin, 20);
+  assert.equal(c2.completed, false);
+  assert.equal(c2.category, null);
+  // currentSequence should skip the completed stop and point at the next uncompleted one.
+  assert.equal(route.currentSequence, c2.sequence);
+});
+
+test("getRouteForDriver: every stop completed -> currentSequence is null (route finished)", async () => {
+  const repositories = {
+    findDriverById: async () => ({ id: 8, username: "driver8", routeId: "Store A" }),
+    deliveryCompletionsForDriverDay: async () => [
+      { customerCode: "C1", category: "on_time", deviationMin: 2 },
+    ],
+  };
+  const latestPlan = () =>
+    fakePlan([{ vehicleId: "Store A", stops: [{ orderId: "C1", customer: "Shop 1", eta: "2026-01-01T08:00:00Z" }] }]);
+
+  const route = await getRouteForDriver(8, { repositories, getLatestPresalePlan: latestPlan });
+
+  assert.equal(route.stops[0].completed, true);
+  assert.equal(route.currentSequence, null);
 });

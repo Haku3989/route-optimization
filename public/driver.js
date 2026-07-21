@@ -40,6 +40,10 @@ const stopList = document.getElementById("stopList");
 const routeMessage = document.getElementById("routeMessage");
 const logoutBtn = document.getElementById("logoutBtn");
 
+const summaryBtn = document.getElementById("summaryBtn");
+const summaryPanel = document.getElementById("summaryPanel");
+const summaryContent = document.getElementById("summaryContent");
+
 // --- Render operations injected into the pure renderRoute() ----------------
 const ops = {
   showEmpty() {
@@ -84,6 +88,24 @@ function mapsLinkHtml(mapsUrl) {
   return `<a class="maps-link" href="${mapsUrl}" target="_blank" rel="noopener">Open in Maps</a>`;
 }
 
+/** Status badge for a completed stop's early/on-time/late category, or `null`
+ * when there's nothing to show yet (not completed, or no ETA to compare against). */
+function categoryBadge(category, deviationMin) {
+  if (!category) return null;
+  const span = document.createElement("span");
+  if (category === "early") {
+    span.className = "status-early";
+    span.textContent = Number.isFinite(deviationMin) ? `${Math.abs(deviationMin)} min early` : "Early";
+  } else if (category === "late") {
+    span.className = "status-late";
+    span.textContent = Number.isFinite(deviationMin) ? `${deviationMin} min late` : "Late";
+  } else {
+    span.className = "status-on-time";
+    span.textContent = "On time";
+  }
+  return span;
+}
+
 /** Build a single stop <li> from a view-model produced by renderStopList(). */
 function buildStopEl(vm) {
   const li = document.createElement("li");
@@ -117,6 +139,12 @@ function buildStopEl(vm) {
   eta.textContent = `ETA ${fmtTime(vm.eta)}`;
   li.appendChild(eta);
 
+  const badge = categoryBadge(vm.category, vm.deviationMin);
+  if (badge) {
+    badge.classList.add("status-badge");
+    li.appendChild(badge);
+  }
+
   const actions = document.createElement("div");
   actions.className = "stop-actions";
 
@@ -135,7 +163,7 @@ function buildStopEl(vm) {
     btn.type = "button";
     btn.className = "complete-btn";
     btn.textContent = "Mark complete";
-    btn.addEventListener("click", () => onComplete(vm.sequence));
+    btn.addEventListener("click", () => onComplete(vm.sequence, vm.customerCode, btn));
     actions.appendChild(btn);
   }
 
@@ -151,10 +179,46 @@ function render(route) {
   renderRoute(route, ops);
 }
 
-/** Advance the current stop after the driver marks it complete (Req 8.3). */
-function onComplete(sequence) {
-  currentRoute = advanceStop(currentRoute, sequence);
-  render(currentRoute);
+/**
+ * Mark a stop complete: persist it server-side first (so the early/on-time/
+ * late status is real and survives a refresh — see `driverRoutes.js`'s
+ * `POST /complete`), then advance the route optimistically via the pure
+ * `advanceStop` on success. The button is disabled for the round-trip so a
+ * double-tap can't fire two requests.
+ */
+async function onComplete(sequence, customerCode, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/driver/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ customerCode }),
+    });
+    if (res.status === 401) {
+      clearToken();
+      showLogin();
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok || data.message) {
+      // Stop no longer in the current route (e.g. plan was rebuilt) or a
+      // server error — reload the real route rather than trusting stale local state.
+      await loadRoute();
+      return;
+    }
+    // Stamp the completed stop's real category/deviation onto the current
+    // route before advancing, so the badge shows immediately.
+    currentRoute = {
+      ...currentRoute,
+      stops: currentRoute.stops.map((s) =>
+        s.sequence === sequence ? { ...s, category: data.category, deviationMin: data.deviationMin } : s
+      ),
+    };
+    currentRoute = advanceStop(currentRoute, sequence);
+    render(currentRoute);
+  } catch (_) {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // --- View switching ---------------------------------------------------------
@@ -167,6 +231,8 @@ function showLogin() {
   routeMessage.hidden = true;
   routeMessage.textContent = "";
   routeMeta.textContent = "";
+  summaryPanel.hidden = true;
+  summaryContent.innerHTML = "";
 }
 
 function showRouteView() {
@@ -273,10 +339,66 @@ function logout() {
   showLogin();
 }
 
+// --- Today's summary ---------------------------------------------------------
+function metric(label, value) {
+  const wrap = document.createElement("div");
+  wrap.className = "summary-metric";
+  const v = document.createElement("div");
+  v.className = "summary-value";
+  v.textContent = String(value);
+  const l = document.createElement("div");
+  l.className = "summary-label";
+  l.textContent = label;
+  wrap.appendChild(v);
+  wrap.appendChild(l);
+  return wrap;
+}
+
+async function loadSummary() {
+  summaryContent.innerHTML = "";
+  try {
+    const res = await fetch("/api/driver/summary", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      clearToken();
+      showLogin();
+      return;
+    }
+    if (!res.ok) throw new Error(`summary request failed: ${res.status}`);
+    const data = await res.json();
+    if (data.completed === 0) {
+      const p = document.createElement("p");
+      p.className = "message";
+      p.textContent = "No deliveries completed yet today.";
+      summaryContent.appendChild(p);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    frag.appendChild(metric("Completed", data.completed));
+    frag.appendChild(metric("On time", `${data.onTimePct}%`));
+    frag.appendChild(metric("Early", data.early));
+    frag.appendChild(metric("Late", data.late));
+    summaryContent.appendChild(frag);
+  } catch (_) {
+    const p = document.createElement("p");
+    p.className = "message";
+    p.textContent = "Could not load today's summary.";
+    summaryContent.appendChild(p);
+  }
+}
+
+function toggleSummary() {
+  const willShow = summaryPanel.hidden;
+  summaryPanel.hidden = !willShow;
+  if (willShow) loadSummary();
+}
+
 // --- Boot -------------------------------------------------------------------
 function init() {
   loginForm.addEventListener("submit", handleLogin);
   logoutBtn.addEventListener("click", logout);
+  summaryBtn.addEventListener("click", toggleSummary);
 
   const stored = getStoredToken();
   if (stored) {

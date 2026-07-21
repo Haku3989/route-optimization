@@ -16,6 +16,7 @@
   --gold: #e2a13a;
   --sage: #5f8f57;
   --danger: #c0392b;
+  --info: #3a7ca5; /* early-delivery blue — distinct from --gold (used for "current stop") */
 
   --text: #3a2b21;
   --muted: #7c6a58;
@@ -318,6 +319,63 @@ input:focus {
   letter-spacing: 0.04em;
   color: var(--sage);
   font-weight: 700;
+}
+
+/* Early/on-time/late completion status (same class names/meaning as the
+ * admin dashboard's daily delivery report — deliveryReport.css). */
+.status-early {
+  color: var(--info);
+  font-weight: 600;
+}
+
+.status-on-time {
+  color: var(--sage);
+  font-weight: 600;
+}
+
+.status-late {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.status-badge {
+  display: block;
+  margin: 6px 0 0 40px;
+  font-size: 12px;
+}
+
+/* Today's summary toggle + panel. */
+.summary-toggle {
+  display: block;
+  margin: 18px auto 0;
+  text-decoration: underline;
+}
+
+.summary-panel {
+  margin-top: 12px;
+}
+
+.summary-panel #summaryContent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.summary-metric {
+  flex: 1 1 80px;
+  text-align: center;
+}
+
+.summary-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--barn-dark);
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 /* Cross-link from the driver login to the admin portal. */
