@@ -63,6 +63,37 @@ export function query(text, params) {
 }
 
 /**
+ * Run `fn` inside a single transaction on a dedicated pooled client.
+ *
+ * `fn` receives that client so a multi-statement unit of work (e.g. a chunked
+ * bulk insert that must not exceed Postgres's per-statement bind-parameter
+ * limit) commits atomically — all chunks land or none do. Any throw triggers a
+ * ROLLBACK; the client is always released back to the pool.
+ *
+ * @template T
+ * @param {(client: import("pg").PoolClient) => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Ignore rollback failures; surface the original error below.
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Gracefully close the pool (shutdown / test teardown).
  * @returns {Promise<void>}
  */

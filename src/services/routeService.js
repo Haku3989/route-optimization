@@ -23,8 +23,11 @@ import { createRouter } from "../routing/router.js";
  * consistent with whichever provider is active.
  *
  * @param {object} input
- * @param {{lat:number,lng:number}} input.depot
- * @param {Array} input.vehicles
+ * @param {{lat:number,lng:number}} input.depot  plan-level fallback depot
+ * @param {Array<{depot?:{lat:number,lng:number}}>} input.vehicles  a vehicle
+ *   MAY carry its own `depot` (e.g. a store's assigned DC) so its route starts
+ *   and ends there instead of the plan-level depot; each returned route
+ *   reports the resolved `depot` it actually used.
  * @param {Array} input.orders
  * @param {Date} [input.departAt]
  * @param {object} [input.router] - routing provider (defaults to createRouter()).
@@ -41,7 +44,11 @@ export async function planDeliveries({
 
   const plannedRoutes = await Promise.all(
     routes.map(async (route) => {
-      const legs = await legsForRoute(router, depot, route.stops, route.vehicle);
+      // Each route reports the depot it actually starts/ends at — the
+      // vehicle's own depot (e.g. a store's assigned DC) when it has one,
+      // otherwise the plan-level depot (solveCVRP already resolved this).
+      const routeDepot = route.depot || depot;
+      const legs = await legsForRoute(router, routeDepot, route.stops, route.vehicle);
       const distanceKm = sumDistanceKm(legs);
       const etas = etasFromLegs(route.stops, legs, departAt);
       const co2Kg = co2ForDistance(distanceKm, route.vehicle);
@@ -53,6 +60,7 @@ export async function planDeliveries({
         load: route.load,
         utilization:
           route.vehicle.capacity === 0 ? 0 : round(route.load / route.vehicle.capacity),
+        depot: routeDepot,
         distanceKm: round(distanceKm),
         co2Kg: round(co2Kg),
         stops: route.stops.map((stop, i) => ({

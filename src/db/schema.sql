@@ -51,9 +51,27 @@ CREATE TABLE IF NOT EXISTS presale_entries (
   customer_code TEXT,                         -- parsed prefix of CustomerName (Req 5.1)
   customer_name TEXT,
   delivery_date DATE,
-  demand        INTEGER                       -- จำนวน Presale
+  demand        INTEGER,                      -- จำนวน Presale
+  -- Optional categorical columns (same names/semantics as history_entries) so
+  -- the presale filter dropdowns (DC_Name, StoreName, StoreGroup, Store Area,
+  -- CustomerType) can match directly on the presale row when the uploaded
+  -- workbook carries them.
+  dc_name       TEXT,
+  store_name    TEXT,
+  store_group   TEXT,
+  store_area    TEXT,
+  customer_type TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_presale_customer_code ON presale_entries (customer_code);
+
+-- Migration: earlier versions of presale_entries predate the categorical
+-- columns above. Add them when missing so an existing database picks them up
+-- without a manual migration step.
+ALTER TABLE presale_entries ADD COLUMN IF NOT EXISTS dc_name TEXT;
+ALTER TABLE presale_entries ADD COLUMN IF NOT EXISTS store_name TEXT;
+ALTER TABLE presale_entries ADD COLUMN IF NOT EXISTS store_group TEXT;
+ALTER TABLE presale_entries ADD COLUMN IF NOT EXISTS store_area TEXT;
+ALTER TABLE presale_entries ADD COLUMN IF NOT EXISTS customer_type TEXT;
 
 -- Driver auth (Requirement 10)
 CREATE TABLE IF NOT EXISTS drivers (
@@ -70,3 +88,19 @@ CREATE TABLE IF NOT EXISTS driver_sessions (
   expires_at TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_driver_id ON driver_sessions (driver_id);
+
+-- Admin auth (admin portal login). Mirrors the driver auth tables but has no
+-- route assignment; an admin authenticates to reach the planner/dashboard.
+CREATE TABLE IF NOT EXISTS admins (
+  id            BIGSERIAL PRIMARY KEY,
+  username      TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL                 -- 'scrypt$<saltHex>$<hashHex>' — never plaintext
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token      TEXT PRIMARY KEY,                -- opaque random bearer token
+  admin_id   BIGINT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  expires_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_id ON admin_sessions (admin_id);

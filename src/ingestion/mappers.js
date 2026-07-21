@@ -84,9 +84,13 @@ function safePush(sink, warning) {
  * @param {(row:object)=>*} opts.getId  extracts the customer code (or null)
  * @param {(row:object)=>object} opts.toRecord  shapes a valid row into a record
  * @param {{ push: Function }} opts.warnings  collector (defaults to a fresh array)
+ * @param {(row:object)=>(string|null)} [opts.softWarn]  optional per-row check
+ *   run on KEPT rows: when it returns a reason string, a warning is recorded
+ *   but the row is still mapped (used for missing OPTIONAL values that degrade,
+ *   rather than prevent, downstream use).
  * @returns {{ records: object[], warnings: object[] }}
  */
-function mapRows(rows, { required, getId, toRecord, warnings }) {
+function mapRows(rows, { required, getId, toRecord, warnings, softWarn }) {
   const records = [];
   const list = Array.isArray(rows) ? rows : [];
 
@@ -109,6 +113,20 @@ function mapRows(rows, { required, getId, toRecord, warnings }) {
     }
 
     records.push(toRecord(row));
+
+    // Soft warning: the row is KEPT but flagged (e.g. a missing optional value
+    // that degrades — but does not prevent — downstream use). Never excludes.
+    if (typeof softWarn === "function") {
+      const reason = softWarn(row);
+      if (reason) {
+        const warning = { row: rowNumber, reason };
+        const id = getId(row);
+        if (id !== null && id !== undefined && id !== "") {
+          warning.id = id;
+        }
+        safePush(warnings, warning);
+      }
+    }
   }
 
   return { records, warnings };
@@ -155,6 +173,12 @@ export function mapHistoryRows(rows, warnings = []) {
     required: WORKBOOK_SCHEMAS.history.required,
     warnings,
     getId: (row) => text(row["Customer_Code"]),
+    // TIME_VISIT is optional: keep the row but flag it, since it has no
+    // position in the historical order (the comparison sorts it last).
+    softWarn: (row) =>
+      isBlank(row["TIME_VISIT"])
+        ? "Missing TIME_VISIT — kept, ordered last in history comparison"
+        : null,
     toRecord: (row) => ({
       customerCode: String(row["Customer_Code"]).trim(),
       customerName: text(row["Customer_Name"]),
@@ -175,7 +199,11 @@ export function mapHistoryRows(rows, warnings = []) {
  * Map Presale_Workbook rows into PresaleEntry objects (Requirement 5.1).
  *
  * The `Customer_Code` prefix is parsed out of `CustomerName`; `demand` comes
- * from `จำนวน Presale` and `deliveryDate` from `DELIVERY_DATE`.
+ * from `จำนวน Presale` and `deliveryDate` from `DELIVERY_DATE`. When present,
+ * the optional `DC_Name` / `StoreName` / `StoreGroup` / `Store Area` /
+ * `CustomerType` columns are captured directly on the record (same names as
+ * the History workbook) so the categorical filters can match presale rows
+ * without depending on the Shop_Master join.
  *
  * @param {object[]} rows
  * @param {{ push: Function }} [warnings]  optional injectable warnings collector
@@ -193,6 +221,13 @@ export function mapPresaleRows(rows, warnings = []) {
         customerName: name,
         deliveryDate: row["DELIVERY_DATE"] ?? null,
         demand: toNumber(row["จำนวน Presale"]),
+        // Optional categorical columns (same names as history) — null when the
+        // uploaded workbook does not carry them, so old workbooks still ingest.
+        dcName: text(row["DC_Name"]),
+        storeName: text(row["StoreName"]),
+        storeGroup: text(row["StoreGroup"]),
+        storeArea: text(row["Store Area"]),
+        customerType: text(row["CustomerType"]),
       };
     },
   });

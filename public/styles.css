@@ -1,12 +1,43 @@
+/* Farmhouse Route Optimization — shared theme.
+ *
+ * Warm "Farmhouse" palette (barn red + wheat gold + sage green over cream)
+ * with a frosted-glass / glassmorphism surface treatment: translucent panels,
+ * a backdrop blur, soft light borders and warm shadows floating over a warm
+ * multi-stop gradient backdrop.
+ *
+ * The older token names (--panel, --panel-2, --accent, --green, --border) are
+ * kept as aliases onto the new glass/warm values so existing component rules
+ * across styles.css / plan.css continue to resolve without a rename sweep.
+ */
+
 :root {
-  --bg: #0f1720;
-  --panel: #172230;
-  --panel-2: #1f2f42;
-  --text: #e6edf3;
-  --muted: #8ba1b6;
-  --accent: #ffb703;
-  --green: #2dd4a7;
-  --border: #26384d;
+  /* Farmhouse palette */
+  --cream: #fdf7ec;
+  --wheat: #f4e6c9;
+  --barn: #c23a24; /* primary brand red */
+  --barn-dark: #a52f1c;
+  --gold: #e2a13a; /* wheat gold accent */
+  --sage: #5f8f57; /* farm green */
+  --danger: #c0392b;
+
+  --text: #3a2b21; /* dark warm brown */
+  --muted: #7c6a58; /* warm taupe */
+
+  /* Glass surfaces */
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-strong: rgba(255, 255, 255, 0.62);
+  --glass-2: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 10px 30px rgba(97, 58, 30, 0.18);
+  --blur: saturate(160%) blur(14px);
+
+  /* Back-compat aliases */
+  --bg: #f1dfbe;
+  --panel: var(--glass);
+  --panel-2: var(--glass-2);
+  --accent: var(--barn);
+  --green: var(--sage);
+  --border: var(--glass-border);
 }
 
 * {
@@ -16,17 +47,35 @@
 body {
   margin: 0;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--bg);
   color: var(--text);
+  min-height: 100vh;
+  background:
+    radial-gradient(1100px 620px at 12% -8%, rgba(226, 122, 58, 0.5), transparent 60%),
+    radial-gradient(1000px 680px at 108% 112%, rgba(226, 161, 58, 0.45), transparent 55%),
+    radial-gradient(720px 520px at 88% 4%, rgba(194, 58, 36, 0.28), transparent 60%),
+    linear-gradient(160deg, #fdf3e0 0%, #f4e3c2 46%, #efd9b5 100%);
+  background-attachment: fixed;
 }
+
+/* --------------------------------------------------------------------------
+ * Topbar
+ * ------------------------------------------------------------------------ */
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
   padding: 14px 22px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .brand {
@@ -36,16 +85,17 @@ body {
 }
 
 .brand .dot {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(255, 183, 3, 0.2);
+  background: var(--barn);
+  box-shadow: 0 0 0 4px rgba(226, 161, 58, 0.35);
 }
 
 .brand h1 {
   font-size: 18px;
   margin: 0;
+  color: var(--text);
 }
 
 .brand p {
@@ -54,19 +104,24 @@ body {
   color: var(--muted);
 }
 
+/* --------------------------------------------------------------------------
+ * Buttons
+ * ------------------------------------------------------------------------ */
+
 .btn {
-  background: var(--accent);
-  color: #1a1200;
+  background: var(--barn);
+  color: #fff;
   border: none;
   padding: 10px 18px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.05s ease, opacity 0.2s ease;
+  box-shadow: 0 6px 16px rgba(194, 58, 36, 0.3);
+  transition: transform 0.05s ease, background 0.2s ease, opacity 0.2s ease;
 }
 
 .btn:hover {
-  opacity: 0.9;
+  background: var(--barn-dark);
 }
 
 .btn:active {
@@ -76,12 +131,7 @@ body {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  box-shadow: none;
 }
 
 a.btn {
@@ -91,10 +141,65 @@ a.btn {
 }
 
 .btn.secondary {
-  background: var(--panel-2);
+  background: var(--glass);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: none;
 }
+
+.btn.secondary:hover {
+  background: var(--glass-strong);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+ * Data-source toggle
+ * ------------------------------------------------------------------------ */
+
+.segmented {
+  display: inline-flex;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.segmented .seg {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segmented .seg:hover {
+  color: var(--text);
+}
+
+.segmented .seg.active {
+  background: var(--barn);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(194, 58, 36, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+ * Metric cards
+ * ------------------------------------------------------------------------ */
 
 .metrics {
   display: grid;
@@ -104,10 +209,13 @@ a.btn {
 }
 
 .metric-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-radius: 16px;
   padding: 14px 16px;
+  box-shadow: var(--glass-shadow);
 }
 
 .metric-card .label {
@@ -119,30 +227,103 @@ a.btn {
   font-size: 24px;
   font-weight: 700;
   margin-top: 4px;
+  color: var(--text);
 }
 
 .metric-card .sub {
   font-size: 12px;
-  color: var(--green);
+  color: var(--sage);
+  font-weight: 600;
   margin-top: 2px;
 }
+
+/* --------------------------------------------------------------------------
+ * Filter bar (dashboard History view)
+ * ------------------------------------------------------------------------ */
+
+.filter-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 22px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.filter-bar[hidden] {
+  display: none;
+}
+
+.filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.filter-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.filter-fields input,
+.filter-fields select {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 13px;
+  min-width: 120px;
+}
+
+.filter-fields input:focus,
+.filter-fields select:focus {
+  outline: none;
+  border-color: var(--barn);
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* --------------------------------------------------------------------------
+ * Map + sidebar layout
+ * ------------------------------------------------------------------------ */
 
 .layout {
   display: grid;
   grid-template-columns: 1fr 380px;
-  gap: 0;
-  height: calc(100vh - 190px);
+  gap: 16px;
+  padding: 0 22px 22px;
+  height: calc(100vh - 210px);
   min-height: 420px;
 }
 
 #map {
   height: 100%;
-  background: #0b1017;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  background: #e9dcc2;
 }
 
 .sidebar {
-  background: var(--panel);
-  border-left: 1px solid var(--border);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  box-shadow: var(--glass-shadow);
   overflow-y: auto;
   padding: 14px;
 }
@@ -152,12 +333,17 @@ a.btn {
   font-size: 14px;
 }
 
+/* --------------------------------------------------------------------------
+ * Route cards (dashboard sidebar)
+ * ------------------------------------------------------------------------ */
+
 .route-card {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
   margin-bottom: 12px;
   overflow: hidden;
+  box-shadow: 0 4px 14px rgba(97, 58, 30, 0.12);
 }
 
 .route-head {
@@ -185,14 +371,14 @@ a.btn {
   font-size: 11px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--muted);
+  background: rgba(194, 58, 36, 0.12);
+  color: var(--barn-dark);
   text-transform: uppercase;
 }
 
 .tag.ev {
-  color: var(--green);
-  background: rgba(45, 212, 167, 0.12);
+  color: var(--sage);
+  background: rgba(95, 143, 87, 0.16);
 }
 
 .route-meta {
@@ -211,7 +397,7 @@ a.btn {
   display: flex;
   gap: 10px;
   padding: 7px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(97, 58, 30, 0.14);
   font-size: 13px;
 }
 
@@ -219,19 +405,297 @@ a.btn {
   min-width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(194, 58, 36, 0.14);
+  color: var(--barn-dark);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .stop-info .name {
   font-weight: 600;
+  color: var(--text);
 }
 
 .stop-info .eta {
   color: var(--muted);
   font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+ * History comparison legend + guard message
+ * ------------------------------------------------------------------------ */
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(97, 58, 30, 0.15);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.legend-item .line-swatch {
+  width: 26px;
+  height: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.message-box {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+/* --------------------------------------------------------------------------
+ * Auth pages (admin sign-in) — centered frosted-glass card
+ * ------------------------------------------------------------------------ */
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-shell[hidden] {
+  display: none;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 26px 24px;
+  box-shadow: var(--glass-shadow);
+}
+
+.auth-card .brand {
+  margin-bottom: 18px;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.auth-card input {
+  min-height: 46px;
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  color: var(--text);
+}
+
+.auth-card input:focus {
+  outline: 2px solid var(--barn);
+  outline-offset: 1px;
+}
+
+.auth-card .btn {
+  margin-top: 18px;
+  width: 100%;
+  min-height: 48px;
+}
+
+.auth-error {
+  color: var(--danger);
+  font-size: 14px;
+  margin: 12px 0 0;
+}
+
+.auth-foot {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.auth-foot a {
+  color: var(--barn-dark);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+ * Top-of-page progress bar (shared across every async action)
+ * ------------------------------------------------------------------------ */
+
+.top-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 3000;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.top-progress.run {
+  opacity: 1;
+}
+
+.top-progress__fill {
+  height: 100%;
+  width: 0;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, var(--barn), var(--gold));
+  box-shadow: 0 0 10px rgba(226, 161, 58, 0.65);
+  transition: width 0.25s ease;
+}
+
+.top-progress.err .top-progress__fill {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(192, 57, 43, 0.6);
+}
+
+/* --------------------------------------------------------------------------
+ * Admin console (User Setup)
+ * ------------------------------------------------------------------------ */
+
+.admin-main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px 22px 48px;
+  display: grid;
+  gap: 18px;
+}
+
+.admin-card {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: var(--glass-shadow);
+}
+
+.admin-card h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: var(--text);
+}
+
+.admin-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+  margin-top: 8px;
+}
+
+.admin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.admin-form input,
+.admin-form select {
+  min-height: 42px;
+  font-size: 15px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  color: var(--text);
+}
+
+.admin-form input:focus,
+.admin-form select:focus {
+  outline: 2px solid var(--barn);
+  outline-offset: 1px;
+}
+
+.admin-form .btn {
+  height: 42px;
+  align-self: end;
+}
+
+.admin-form label[hidden] {
+  display: none;
+}
+
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.user-table th,
+.user-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(97, 58, 30, 0.14);
+  vertical-align: middle;
+}
+
+.user-table th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Compact + danger button variants used by the user tables. */
+.btn.small {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.btn.danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(192, 57, 43, 0.5);
+  box-shadow: none;
+}
+
+.btn.danger:hover {
+  background: rgba(192, 57, 43, 0.12);
 }

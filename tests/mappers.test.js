@@ -203,11 +203,45 @@ test("mapPresaleRows parses the code and reads demand from จำนวน Presa
       customerName: "ร้านสมชาย",
       deliveryDate: "2026-02-01",
       demand: 20,
+      dcName: null,
+      storeName: null,
+      storeGroup: null,
+      storeArea: null,
+      customerType: null,
     },
   ]);
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].row, 3); // second data row -> worksheet row 3
   assert.equal(warnings[0].id, "67890");
+});
+
+// --- Example: Presale optional categorical columns are captured when present -
+test("mapPresaleRows captures the optional DC/store/group/area/type columns when present", () => {
+  const { records, warnings } = mapPresaleRows([
+    {
+      CustomerName: "12345 ร้านสมชาย",
+      DELIVERY_DATE: "2026-02-01",
+      "จำนวน Presale": 20,
+      DC_Name: "DC Bangkok",
+      StoreName: "SALES-01",
+      StoreGroup: "MT",
+      "Store Area": "Central",
+      CustomerType: "KA",
+    },
+  ]);
+
+  assert.equal(warnings.length, 0);
+  assert.deepEqual(records[0], {
+    customerCode: "12345",
+    customerName: "ร้านสมชาย",
+    deliveryDate: "2026-02-01",
+    demand: 20,
+    dcName: "DC Bangkok",
+    storeName: "SALES-01",
+    storeGroup: "MT",
+    storeArea: "Central",
+    customerType: "KA",
+  });
 });
 
 // --- Example: History field shaping (quantity from จำนวนลง) ------------------

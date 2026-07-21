@@ -17,7 +17,39 @@
  * deleteSession — task 3.2) are appended to the "Driver auth" section at the end.
  */
 
-import { query } from "./pool.js";
+import { query, withTransaction } from "./pool.js";
+
+/**
+ * Postgres caps a single statement at 65535 bind parameters (the wire protocol
+ * encodes the parameter count in a 16-bit field). A large workbook upload can
+ * easily exceed that with a single multi-row INSERT — when it does, the count
+ * overflows and the server rejects it with the confusing
+ * "bind message has N parameter formats but 0 parameters" error.
+ *
+ * Staying comfortably below the hard limit lets us split a big batch into
+ * several INSERTs (run together in one transaction) instead of overflowing.
+ */
+const MAX_BIND_PARAMS = 60000;
+
+/**
+ * Split `rows` into chunks small enough that `columnsPerRow * chunkRows` never
+ * exceeds {@link MAX_BIND_PARAMS}. Always yields at least one row per chunk.
+ *
+ * @param {unknown[][]} rows
+ * @param {number} columnsPerRow
+ * @returns {unknown[][][]}
+ */
+function chunkRowsForBind(rows, columnsPerRow) {
+  const maxRowsPerChunk = Math.max(1, Math.floor(MAX_BIND_PARAMS / columnsPerRow));
+  if (rows.length <= maxRowsPerChunk) {
+    return [rows];
+  }
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += maxRowsPerChunk) {
+    chunks.push(rows.slice(i, i + maxRowsPerChunk));
+  }
+  return chunks;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -124,23 +156,34 @@ export async function upsertShops(records) {
     record.closeTime ?? null,
   ]);
 
-  const { text, params } = buildValuesClause(rows);
-  const result = await query(
-    `INSERT INTO shops
-       (customer_code, shop_name, lat, lng, coord_source,
-        service_time_min, open_time, close_time)
-     VALUES ${text}
-     ON CONFLICT (customer_code) DO UPDATE SET
-       shop_name        = EXCLUDED.shop_name,
-       lat              = EXCLUDED.lat,
-       lng              = EXCLUDED.lng,
-       coord_source     = EXCLUDED.coord_source,
-       service_time_min = EXCLUDED.service_time_min,
-       open_time        = EXCLUDED.open_time,
-       close_time       = EXCLUDED.close_time`,
-    params
-  );
-  return result.rowCount;
+  // 8 columns per row — chunk so a large master file never overflows the
+  // bind-parameter limit. Dedup above guarantees each customer_code appears
+  // once overall, so no chunk (nor any pair of chunks) touches the same
+  // ON CONFLICT target twice.
+  const chunks = chunkRowsForBind(rows, 8);
+  return withTransaction(async (client) => {
+    let written = 0;
+    for (const chunk of chunks) {
+      const { text, params } = buildValuesClause(chunk);
+      const result = await client.query(
+        `INSERT INTO shops
+           (customer_code, shop_name, lat, lng, coord_source,
+            service_time_min, open_time, close_time)
+         VALUES ${text}
+         ON CONFLICT (customer_code) DO UPDATE SET
+           shop_name        = EXCLUDED.shop_name,
+           lat              = EXCLUDED.lat,
+           lng              = EXCLUDED.lng,
+           coord_source     = EXCLUDED.coord_source,
+           service_time_min = EXCLUDED.service_time_min,
+           open_time        = EXCLUDED.open_time,
+           close_time       = EXCLUDED.close_time`,
+        params
+      );
+      written += result.rowCount;
+    }
+    return written;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -184,15 +227,24 @@ export async function insertHistoryEntries(records) {
     record.quantity ?? null,
   ]);
 
-  const { text, params } = buildValuesClause(rows);
-  const result = await query(
-    `INSERT INTO history_entries
-       (customer_code, customer_name, dc_name, store_name, invoice_date,
-        time_visit, visit_type, store_group, store_area, customer_type, quantity)
-     VALUES ${text}`,
-    params
-  );
-  return result.rowCount;
+  // 11 columns per row — chunk so a large history file is inserted as several
+  // statements within one transaction instead of a single oversized INSERT.
+  const chunks = chunkRowsForBind(rows, 11);
+  return withTransaction(async (client) => {
+    let inserted = 0;
+    for (const chunk of chunks) {
+      const { text, params } = buildValuesClause(chunk);
+      const result = await client.query(
+        `INSERT INTO history_entries
+           (customer_code, customer_name, dc_name, store_name, invoice_date,
+            time_visit, visit_type, store_group, store_area, customer_type, quantity)
+         VALUES ${text}`,
+        params
+      );
+      inserted += result.rowCount;
+    }
+    return inserted;
+  });
 }
 
 /**
@@ -204,6 +256,11 @@ export async function insertHistoryEntries(records) {
  *   customerName?: string|null,
  *   deliveryDate?: string|Date|null,
  *   demand?: number|null,
+ *   dcName?: string|null,
+ *   storeName?: string|null,
+ *   storeGroup?: string|null,
+ *   storeArea?: string|null,
+ *   customerType?: string|null,
  * }>} records
  * @returns {Promise<number>} number of rows inserted
  */
@@ -217,16 +274,31 @@ export async function insertPresaleEntries(records) {
     record.customerName ?? null,
     record.deliveryDate ?? null,
     record.demand ?? null,
+    record.dcName ?? null,
+    record.storeName ?? null,
+    record.storeGroup ?? null,
+    record.storeArea ?? null,
+    record.customerType ?? null,
   ]);
 
-  const { text, params } = buildValuesClause(rows);
-  const result = await query(
-    `INSERT INTO presale_entries
-       (customer_code, customer_name, delivery_date, demand)
-     VALUES ${text}`,
-    params
-  );
-  return result.rowCount;
+  // 9 columns per row — chunk for parity with the other bulk writers so an
+  // unusually large presale file cannot overflow the bind-parameter limit.
+  const chunks = chunkRowsForBind(rows, 9);
+  return withTransaction(async (client) => {
+    let inserted = 0;
+    for (const chunk of chunks) {
+      const { text, params } = buildValuesClause(chunk);
+      const result = await client.query(
+        `INSERT INTO presale_entries
+           (customer_code, customer_name, delivery_date, demand,
+            dc_name, store_name, store_group, store_area, customer_type)
+         VALUES ${text}`,
+        params
+      );
+      inserted += result.rowCount;
+    }
+    return inserted;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +378,11 @@ export async function joinPresale() {
        p.customer_name,
        p.delivery_date,
        p.demand,
+       p.dc_name,
+       p.store_name,
+       p.store_group,
+       p.store_area,
+       p.customer_type,
        s.customer_code AS shop_customer_code,
        s.lat,
        s.lng,
@@ -325,6 +402,11 @@ export async function joinPresale() {
       customerName: row.customer_name,
       deliveryDate: row.delivery_date,
       demand: row.demand,
+      dcName: row.dc_name,
+      storeName: row.store_name,
+      storeGroup: row.store_group,
+      storeArea: row.store_area,
+      customerType: row.customer_type,
     },
     shop: shopFromJoinRow(row),
   }));
@@ -343,7 +425,8 @@ export async function joinPresale() {
  */
 export async function truncateAll() {
   await query(
-    `TRUNCATE shops, history_entries, presale_entries, drivers, driver_sessions
+    `TRUNCATE shops, history_entries, presale_entries,
+              drivers, driver_sessions, admins, admin_sessions
      RESTART IDENTITY CASCADE`
   );
 }
@@ -435,4 +518,256 @@ export async function findSession(token) {
  */
 export async function deleteSession(token) {
   await query(`DELETE FROM driver_sessions WHERE token = $1`, [token]);
+}
+
+// ---------------------------------------------------------------------------
+// Admin auth — mirrors the driver auth helpers above for the admin portal.
+// findAdminByUsername, insertAdminSession, findAdminSession, deleteAdminSession
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up an admin by username for login.
+ *
+ * @param {string} username  the submitted admin username (bound as $1)
+ * @returns {Promise<{ id: number, username: string, passwordHash: string } | null>}
+ *   the admin row mapped to camelCase, or `null` when no admin has that username
+ *   (callers treat `null` as a generic authentication failure).
+ */
+export async function findAdminByUsername(username) {
+  const result = await query(
+    `SELECT id, username, password_hash
+       FROM admins
+      WHERE username = $1`,
+    [username]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    username: row.username,
+    passwordHash: row.password_hash,
+  };
+}
+
+/**
+ * Persist an issued admin bearer token. `created_at` defaults to `now()`.
+ *
+ * @param {string} token       opaque random bearer token (PK, bound as $1)
+ * @param {number} adminId     owning admin id (bound as $2)
+ * @param {string|Date|null} [expiresAt]  optional expiry; `null`/omitted means
+ *   the session does not expire on a timestamp basis.
+ * @returns {Promise<void>}
+ */
+export async function insertAdminSession(token, adminId, expiresAt = null) {
+  await query(
+    `INSERT INTO admin_sessions (token, admin_id, expires_at)
+     VALUES ($1, $2, $3)`,
+    [token, adminId, expiresAt ?? null]
+  );
+}
+
+/**
+ * Resolve an admin bearer token to its session, joining `admins` so the caller
+ * can echo the username (e.g. GET /api/admin/me) without a second query. An
+ * absent row (or an expired `expiresAt`) is treated as unauthenticated.
+ *
+ * @param {string} token  the bearer token to look up (bound as $1)
+ * @returns {Promise<{ adminId: number, username: string, expiresAt: Date|null } | null>}
+ */
+export async function findAdminSession(token) {
+  const result = await query(
+    `SELECT s.admin_id, s.expires_at, a.username
+       FROM admin_sessions s
+       JOIN admins a ON a.id = s.admin_id
+      WHERE s.token = $1`,
+    [token]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    adminId: row.admin_id,
+    username: row.username,
+    expiresAt: row.expires_at ?? null,
+  };
+}
+
+/**
+ * Remove an admin session (logout / expired-token cleanup). Deleting a token
+ * that does not exist is a no-op.
+ *
+ * @param {string} token  the bearer token to delete (bound as $1)
+ * @returns {Promise<void>}
+ */
+export async function deleteAdminSession(token) {
+  await query(`DELETE FROM admin_sessions WHERE token = $1`, [token]);
+}
+
+// ---------------------------------------------------------------------------
+// Filter option lists — distinct values from the uploaded history data, used to
+// populate the dashboard/planner filter dropdowns.
+// ---------------------------------------------------------------------------
+
+/**
+ * Distinct, non-empty values for each categorical History column, sorted
+ * ascending. Column names are hardcoded constants (never user input), so the
+ * interpolation below carries no injection risk.
+ *
+ * @returns {Promise<{ dcName:string[], storeName:string[], storeGroup:string[],
+ *   storeArea:string[], customerType:string[] }>}
+ */
+export async function distinctHistoryFilterValues() {
+  const columns = [
+    ["dcName", "dc_name"],
+    ["storeName", "store_name"],
+    ["storeGroup", "store_group"],
+    ["storeArea", "store_area"],
+    ["customerType", "customer_type"],
+  ];
+
+  const result = {};
+  for (const [key, column] of columns) {
+    const rows = await query(
+      `SELECT DISTINCT ${column} AS value
+         FROM history_entries
+        WHERE ${column} IS NOT NULL AND ${column} <> ''
+        ORDER BY value`
+    );
+    result[key] = rows.rows.map((row) => row.value);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// User management (admin "User Setup" console) — CRUD over admins + drivers.
+// All are admin-gated at the route layer; passwords arrive pre-hashed here.
+// ---------------------------------------------------------------------------
+
+/**
+ * List all admins (id + username only; never the password hash).
+ * @returns {Promise<Array<{ id:number, username:string }>>}
+ */
+export async function listAdmins() {
+  const result = await query(`SELECT id, username FROM admins ORDER BY username`);
+  return result.rows.map((row) => ({ id: row.id, username: row.username }));
+}
+
+/**
+ * List all drivers (id, username, assigned route; never the password hash).
+ * @returns {Promise<Array<{ id:number, username:string, routeId:string|null }>>}
+ */
+export async function listDrivers() {
+  const result = await query(
+    `SELECT id, username, route_id FROM drivers ORDER BY username`
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    username: row.username,
+    routeId: row.route_id ?? null,
+  }));
+}
+
+/**
+ * Count admin rows — used to refuse deleting the last remaining admin.
+ * @returns {Promise<number>}
+ */
+export async function countAdmins() {
+  const result = await query(`SELECT COUNT(*)::int AS n FROM admins`);
+  return result.rows[0]?.n ?? 0;
+}
+
+/**
+ * Insert a new admin. Returns the created row, or `null` when the username is
+ * already taken (ON CONFLICT DO NOTHING yields no row).
+ *
+ * @param {string} username
+ * @param {string} passwordHash  pre-hashed "scrypt$..." string
+ * @returns {Promise<{ id:number, username:string }|null>}
+ */
+export async function createAdmin(username, passwordHash) {
+  const result = await query(
+    `INSERT INTO admins (username, password_hash)
+     VALUES ($1, $2)
+     ON CONFLICT (username) DO NOTHING
+     RETURNING id, username`,
+    [username, passwordHash]
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, username: row.username } : null;
+}
+
+/**
+ * Insert a new driver. Returns the created row, or `null` when the username is
+ * already taken.
+ *
+ * @param {string} username
+ * @param {string} passwordHash  pre-hashed "scrypt$..." string
+ * @param {string|null} [routeId]
+ * @returns {Promise<{ id:number, username:string, routeId:string|null }|null>}
+ */
+export async function createDriver(username, passwordHash, routeId = null) {
+  const result = await query(
+    `INSERT INTO drivers (username, password_hash, route_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (username) DO NOTHING
+     RETURNING id, username, route_id`,
+    [username, passwordHash, routeId ?? null]
+  );
+  const row = result.rows[0];
+  return row
+    ? { id: row.id, username: row.username, routeId: row.route_id ?? null }
+    : null;
+}
+
+/**
+ * Reset an admin's password. Returns the number of rows updated (0 = no such id).
+ * @param {number} id
+ * @param {string} passwordHash
+ * @returns {Promise<number>}
+ */
+export async function updateAdminPassword(id, passwordHash) {
+  const result = await query(
+    `UPDATE admins SET password_hash = $2 WHERE id = $1`,
+    [id, passwordHash]
+  );
+  return result.rowCount;
+}
+
+/**
+ * Reset a driver's password. Returns the number of rows updated (0 = no such id).
+ * @param {number} id
+ * @param {string} passwordHash
+ * @returns {Promise<number>}
+ */
+export async function updateDriverPassword(id, passwordHash) {
+  const result = await query(
+    `UPDATE drivers SET password_hash = $2 WHERE id = $1`,
+    [id, passwordHash]
+  );
+  return result.rowCount;
+}
+
+/**
+ * Delete an admin by id (cascades to their sessions). Returns rows deleted.
+ * @param {number} id
+ * @returns {Promise<number>}
+ */
+export async function deleteAdminById(id) {
+  const result = await query(`DELETE FROM admins WHERE id = $1`, [id]);
+  return result.rowCount;
+}
+
+/**
+ * Delete a driver by id (cascades to their sessions). Returns rows deleted.
+ * @param {number} id
+ * @returns {Promise<number>}
+ */
+export async function deleteDriverById(id) {
+  const result = await query(`DELETE FROM drivers WHERE id = $1`, [id]);
+  return result.rowCount;
 }

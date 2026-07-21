@@ -22,6 +22,7 @@ import {
   loadApp,
   startServer,
   stopServer,
+  authAsAdmin,
 } from "./helpers/dbIntegration.js";
 
 let pool;
@@ -29,6 +30,7 @@ let repositories;
 let app;
 let server;
 let baseUrl;
+let authHeaders;
 let HISTORY_MESSAGES;
 let PRESALE_MESSAGES;
 
@@ -47,6 +49,8 @@ before(async () => {
 beforeEach(async () => {
   if (DB_SKIP) return;
   await repositories.truncateAll();
+  // truncateAll clears admins, so mint a fresh admin session per test.
+  authHeaders = await authAsAdmin(baseUrl);
 });
 
 after(async () => {
@@ -58,7 +62,7 @@ after(async () => {
 async function postJson(path, body) {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders },
     body: JSON.stringify(body),
   });
   const json = await res.json();
@@ -204,5 +208,20 @@ test(
     assert.equal(res.status, 200);
     assert.equal(json.message, PRESALE_MESSAGES.NO_CUSTOMERS_MATCHED);
     assert.ok(!("plan" in json));
+  }
+);
+
+test(
+  "gated endpoints reject an unauthenticated request with 401",
+  { skip: DB_SKIP },
+  async () => {
+    for (const path of ["/api/history/compare", "/api/presale/plan"]) {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" }, // no Authorization
+        body: JSON.stringify({ filters: {} }),
+      });
+      assert.equal(res.status, 401, `${path} should require an admin session`);
+    }
   }
 );

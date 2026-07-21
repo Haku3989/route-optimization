@@ -18,12 +18,16 @@
  */
 export const WORKBOOK_SCHEMAS = {
   history: {
-    required: ["Customer_Code", "TIME_VISIT", "จำนวนลง"],
+    // TIME_VISIT is intentionally NOT required: rows without a visit time are
+    // still kept (the history comparison sorts them last) — the history mapper
+    // records a non-excluding "soft" warning for them instead of dropping them.
+    required: ["Customer_Code", "จำนวนลง"],
     optional: [
       "Customer_Name",
       "DC_Name",
       "StoreName",
       "InvoiceDate",
+      "TIME_VISIT",
       "VISIT_TYPE",
       "StoreGroup",
       "Store Area",
@@ -43,7 +47,10 @@ export const WORKBOOK_SCHEMAS = {
   },
   presale: {
     required: ["CustomerName", "DELIVERY_DATE", "จำนวน Presale"],
-    optional: [],
+    // Same optional categorical columns as history, when the presale workbook
+    // carries them — lets the DC/store/group/area/type filters match presale
+    // rows directly instead of relying on the (mostly absent) Shop_Master join.
+    optional: ["DC_Name", "StoreName", "StoreGroup", "Store Area", "CustomerType"],
   },
 };
 

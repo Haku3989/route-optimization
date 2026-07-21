@@ -79,3 +79,32 @@ export function stopServer(server) {
   if (!server) return Promise.resolve();
   return new Promise((resolve) => server.close(() => resolve()));
 }
+
+/**
+ * Seed a throwaway admin and log in, returning an `Authorization` header object
+ * for the gated endpoints (/api/ingest, /api/history, /api/presale, /api/plan).
+ *
+ * Call AFTER `truncateAll()` (which clears the admins table) so the admin is
+ * created fresh for the test. Uses the real password hasher + login route, so
+ * it exercises the same auth path the app uses.
+ *
+ * @param {string} baseUrl running server base URL
+ * @param {{ username?: string, password?: string }} [creds]
+ * @returns {Promise<{ Authorization: string }>}
+ */
+export async function authAsAdmin(
+  baseUrl,
+  { username = "it-admin", password = "it-admin-pass-123" } = {}
+) {
+  const { hashPassword } = await import("../../src/auth/credentials.js");
+  const repositories = await loadRepositories();
+  await repositories.createAdmin(username, await hashPassword(password));
+
+  const res = await fetch(`${baseUrl}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const { token } = await res.json();
+  return { Authorization: `Bearer ${token}` };
+}

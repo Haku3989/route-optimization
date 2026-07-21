@@ -56,8 +56,13 @@ class LongdoRouter {
       opts.baseUrl ||
       process.env.LONGDO_BASE_URL ||
       "https://api.longdo.com/RouteService/json/route/guide";
-    // Cache leg results so shared legs (e.g. baseline vs optimized) hit once.
+    // Cache leg results (including fallback results) so shared legs (e.g.
+    // baseline vs optimized, or the SAME leg retried after a failure) hit once.
     this._cache = new Map();
+    // Degrade to this network-free estimator per-leg when Longdo fails (rate
+    // limit, network error, bad response) instead of failing the whole plan.
+    this._fallback = new EstimatorRouter();
+    this._warnedFallback = false;
   }
 
   _cacheKey(from, to) {
@@ -65,13 +70,13 @@ class LongdoRouter {
   }
 
   /**
-   * Query Longdo for a single leg's real distance and travel time.
+   * Query Longdo for a single leg's real distance and travel time. Throws on
+   * any failure — HTTP error, the API's "throw '...';" error body, a
+   * non-JSON body, or a response missing distance data — so the caller (see
+   * `_leg`) can decide how to degrade.
    * @returns {Promise<LegMetric>}
    */
-  async _leg(from, to) {
-    const key = this._cacheKey(from, to);
-    if (this._cache.has(key)) return this._cache.get(key);
-
+  async _fetchLeg(from, to) {
     const url =
       `${this.baseUrl}?flon=${from.lng}&flat=${from.lat}` +
       `&tlon=${to.lng}&tlat=${to.lat}` +
@@ -83,7 +88,8 @@ class LongdoRouter {
     }
 
     const text = await res.text();
-    // Longdo returns a JS error string (e.g. "throw '...Key Error';") on failure.
+    // Longdo returns a JS error string (e.g. "throw '...Too many requests...';")
+    // on failure — including rate limiting — rather than a non-2xx status.
     if (text.trim().startsWith("throw")) {
       throw new Error(`Longdo RouteService error: ${text.trim()}`);
     }
@@ -100,20 +106,47 @@ class LongdoRouter {
       throw new Error("Longdo RouteService response missing distance data");
     }
 
-    const metric = {
+    return {
       distanceKm: first.distance / 1000, // meters -> km
       durationMin:
         typeof first.interval === "number" ? first.interval / 60 : 0, // seconds -> min
     };
+  }
+
+  /**
+   * Resolve a single leg, caching the result (whether from Longdo or the
+   * fallback). On any Longdo failure, degrades to the network-free estimator
+   * for that leg — a rate limit, an outage, or a bad response never fails the
+   * whole plan/comparison. Logs a warning ONCE per router instance so a run of
+   * failing legs (e.g. a persistent rate limit) does not spam the log.
+   * @returns {Promise<LegMetric>}
+   */
+  async _leg(from, to, speedKmh) {
+    const key = this._cacheKey(from, to);
+    if (this._cache.has(key)) return this._cache.get(key);
+
+    let metric;
+    try {
+      metric = await this._fetchLeg(from, to);
+    } catch (err) {
+      if (!this._warnedFallback) {
+        console.warn(
+          `[routing] Longdo RouteService failed (${err.message}); falling back ` +
+            "to the built-in distance estimate for this and any further failed legs."
+        );
+        this._warnedFallback = true;
+      }
+      [metric] = await this._fallback.routeLegs([from, to], { speedKmh });
+    }
     this._cache.set(key, metric);
     return metric;
   }
 
-  async routeLegs(points /*, opts */) {
+  async routeLegs(points, opts = {}) {
     const legs = [];
     // Sequential to stay friendly with rate limits; cache avoids repeats.
     for (let i = 0; i < points.length - 1; i++) {
-      legs.push(await this._leg(points[i], points[i + 1]));
+      legs.push(await this._leg(points[i], points[i + 1], opts.speedKmh));
     }
     return legs;
   }

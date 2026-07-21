@@ -22,6 +22,19 @@ import {
   summarizeComparison,
   summarizePlan,
 } from "./planView.js";
+import * as progress from "./progress.js";
+import {
+  adminAuthHeader,
+  getAdminToken,
+  ensureAdmin,
+  handledUnauthorized,
+  redirectToLogin,
+} from "./adminAuth.js";
+import { fetchFilterOptions, populateFilterForm } from "./filterOptions.js";
+
+// The planner is admin-gated: without a token the ingest/history/presale
+// endpoints return 401, so send the user to sign in before showing the page.
+ensureAdmin();
 
 // ---------------------------------------------------------------------------
 // Small DOM helpers (safe by construction — text goes in via textContent)
@@ -104,22 +117,79 @@ function renderUploadSuccess(data) {
     frag.appendChild(chips);
   }
 
-  // Warnings table.
+  // Warnings: collapsed by default (a large upload can produce thousands of
+  // rows), with a toggle to reveal them and a "Show more" button to page
+  // through the list instead of rendering it all at once.
   const warnings = Array.isArray(data.warnings) ? data.warnings : [];
   if (warnings.length > 0) {
-    frag.appendChild(el("div", "section-title warn-title", `Warnings (${warnings.length})`));
-    frag.appendChild(
-      buildTable(
-        ["row / id", "reason"],
-        warnings,
-        [(w) => (w.id != null ? w.id : w.row != null ? w.row : "—"), (w) => w.reason],
-      ),
-    );
+    frag.appendChild(buildWarningsSection(warnings));
   } else {
     frag.appendChild(el("p", "hint", "No warnings."));
   }
 
   setContent(uploadResult, frag);
+}
+
+/** Number of warning rows revealed per "Show more" click. */
+const WARNINGS_PAGE_SIZE = 20;
+
+/**
+ * Build the collapsible warnings section: a header with a count + toggle
+ * button, and (once expanded) a table that starts at `WARNINGS_PAGE_SIZE` rows
+ * and grows via a "Show more" button until every warning is shown.
+ */
+function buildWarningsSection(warnings) {
+  const section = el("div", "warnings-section");
+
+  const header = el("div", "warnings-header");
+  header.appendChild(el("span", "section-title warn-title", `Warnings (${warnings.length})`));
+  const toggleBtn = el("button", "btn secondary small", "Show details");
+  toggleBtn.type = "button";
+  header.appendChild(toggleBtn);
+  section.appendChild(header);
+
+  const body = el("div", "warnings-body");
+  body.hidden = true;
+  section.appendChild(body);
+
+  let renderedCount = 0;
+  const tableHolder = el("div");
+  const showMoreBtn = el("button", "btn secondary small", "Show more");
+  showMoreBtn.type = "button";
+
+  function renderMore() {
+    const next = warnings.slice(renderedCount, renderedCount + WARNINGS_PAGE_SIZE);
+    renderedCount += next.length;
+
+    // Rebuild the table with every row rendered so far (simplest correct
+    // approach — the DOM helper builds a full <table> from a row list).
+    setContent(
+      tableHolder,
+      buildTable(
+        ["row / id", "reason"],
+        warnings.slice(0, renderedCount),
+        [(w) => (w.id != null ? w.id : w.row != null ? w.row : "—"), (w) => w.reason],
+      ),
+    );
+
+    const remaining = warnings.length - renderedCount;
+    showMoreBtn.textContent = `Show more (${remaining} remaining)`;
+    showMoreBtn.hidden = remaining <= 0;
+  }
+
+  showMoreBtn.addEventListener("click", renderMore);
+
+  let expanded = false;
+  toggleBtn.addEventListener("click", () => {
+    expanded = !expanded;
+    body.hidden = !expanded;
+    toggleBtn.textContent = expanded ? "Hide details" : "Show details";
+    if (expanded && renderedCount === 0) renderMore(); // lazy: render on first expand
+  });
+
+  body.appendChild(tableHolder);
+  body.appendChild(showMoreBtn);
+  return section;
 }
 
 function stat(k, v) {
@@ -139,11 +209,12 @@ function addUploadLog(ok, text) {
   uploadLog.insertBefore(li, uploadLog.firstChild);
 }
 
-uploadForm.addEventListener("submit", async (event) => {
+uploadForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const file = uploadFile.files && uploadFile.files[0];
   if (!file) return;
 
+  const fileName = file.name;
   uploadBtn.disabled = true;
   uploadBtn.textContent = "Uploading…";
 
@@ -151,31 +222,72 @@ uploadForm.addEventListener("submit", async (event) => {
   body.append("file", file);
   if (uploadType.value) body.append("type", uploadType.value); // omit when auto
 
-  try {
-    const res = await fetch("/api/ingest/upload", { method: "POST", body });
-    const data = await res.json();
+  // XHR (not fetch) so the upload phase reports REAL byte progress; once the
+  // file finishes sending, the server parses it, so we switch the bar to an
+  // indeterminate "processing" trickle until the response arrives.
+  progress.start();
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/ingest/upload");
+  const authToken = getAdminToken();
+  if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
 
-    if (!res.ok) {
-      setContent(uploadResult, errorBox(data.error || `Upload failed (${res.status})`));
-      addUploadLog(false, `${file.name}: ${data.error || res.status}`);
+  xhr.upload.addEventListener("progress", (e) => {
+    if (e.lengthComputable) progress.set(e.loaded / e.total);
+  });
+  xhr.upload.addEventListener("load", () => {
+    uploadBtn.textContent = "Processing…";
+    progress.indeterminate();
+  });
+
+  xhr.addEventListener("load", () => {
+    if (xhr.status === 401) {
+      progress.fail();
+      redirectToLogin();
       return;
     }
 
+    let data = {};
+    try {
+      data = JSON.parse(xhr.responseText || "{}");
+    } catch (_) {
+      /* leave data empty; handled as a generic failure below */
+    }
+
+    if (xhr.status < 200 || xhr.status >= 300) {
+      progress.fail();
+      setContent(uploadResult, errorBox(data.error || `Upload failed (${xhr.status})`));
+      addUploadLog(false, `${fileName}: ${data.error || xhr.status}`);
+      resetUploadForm();
+      return;
+    }
+
+    progress.done();
     renderUploadSuccess(data);
     addUploadLog(
       true,
-      `${file.name} → ${data.type}: ${data.mapped}/${data.rowCount} mapped` +
+      `${fileName} → ${data.type}: ${data.mapped}/${data.rowCount} mapped` +
         (data.warnings && data.warnings.length ? `, ${data.warnings.length} warning(s)` : ""),
     );
-  } catch (err) {
-    setContent(uploadResult, errorBox(`Could not upload: ${err.message}`));
-    addUploadLog(false, `${file.name}: ${err.message}`);
-  } finally {
-    uploadBtn.disabled = false;
-    uploadBtn.textContent = "Upload";
-    uploadForm.reset();
-  }
+    // A history upload may introduce new filter values — refresh the dropdowns.
+    refreshFilterOptions();
+    resetUploadForm();
+  });
+
+  xhr.addEventListener("error", () => {
+    progress.fail();
+    setContent(uploadResult, errorBox("Could not upload: network error"));
+    addUploadLog(false, `${fileName}: network error`);
+    resetUploadForm();
+  });
+
+  xhr.send(body);
 });
+
+function resetUploadForm() {
+  uploadBtn.disabled = false;
+  uploadBtn.textContent = "Upload";
+  uploadForm.reset();
+}
 
 // ---------------------------------------------------------------------------
 // 2 · History comparison
@@ -231,22 +343,27 @@ historyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   historyBtn.disabled = true;
   historyBtn.textContent = "Comparing…";
+  progress.start();
 
   const filters = buildFilters(readFormInputs(historyForm));
 
   try {
     const res = await fetch("/api/history/compare", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...adminAuthHeader() },
       body: JSON.stringify({ filters }),
     });
+    if (handledUnauthorized(res)) return;
     const data = await res.json();
     if (!res.ok) {
+      progress.fail();
       setContent(historyResult, errorBox(data.error || `Request failed (${res.status})`));
       return;
     }
+    progress.done();
     renderComparison(data);
   } catch (err) {
+    progress.fail();
     setContent(historyResult, errorBox(`Could not compare: ${err.message}`));
   } finally {
     historyBtn.disabled = false;
@@ -279,11 +396,18 @@ function renderPlan(result) {
     const block = el("div", "route-block");
     const title = el("div", "route-title");
     title.appendChild(el("span", null, route.vehicleId || "(vehicle)"));
+    const depotText = route.depot
+      ? `depot ${
+          route.depot.code
+            ? `${route.depot.code}${route.depot.name ? " " + route.depot.name : ""}`
+            : `${route.depot.lat.toFixed(4)}, ${route.depot.lng.toFixed(4)}`
+        } · `
+      : "";
     title.appendChild(
       el(
         "span",
         "meta",
-        `${route.fuelType || "—"} · ${route.stops.length} stops · ` +
+        `${depotText}${route.fuelType || "—"} · ${route.stops.length} stops · ` +
           `${route.distanceKm} km · ${route.co2Kg} kg CO₂ · load ${route.load}/${route.capacity}`,
       ),
     );
@@ -345,22 +469,27 @@ presaleForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   presaleBtn.disabled = true;
   presaleBtn.textContent = "Planning…";
+  progress.start();
 
   const filters = buildFilters(readFormInputs(presaleForm));
 
   try {
     const res = await fetch("/api/presale/plan", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...adminAuthHeader() },
       body: JSON.stringify({ filters }),
     });
+    if (handledUnauthorized(res)) return;
     const data = await res.json();
     if (!res.ok) {
+      progress.fail();
       setContent(presaleResult, errorBox(data.error || `Request failed (${res.status})`));
       return;
     }
+    progress.done();
     renderPlan(data);
   } catch (err) {
+    progress.fail();
     setContent(presaleResult, errorBox(`Could not plan: ${err.message}`));
   } finally {
     presaleBtn.disabled = false;
@@ -374,8 +503,22 @@ presaleForm.addEventListener("submit", async (event) => {
 
 function readFormInputs(form) {
   const inputs = {};
-  for (const field of form.querySelectorAll("input[name]")) {
+  for (const field of form.querySelectorAll("input[name], select[name]")) {
     inputs[field.name] = field.value;
   }
   return inputs;
 }
+
+// ---------------------------------------------------------------------------
+// Populate the categorical filter dropdowns from the uploaded history data.
+// Refreshed on load and after each successful upload (new data may add values).
+// ---------------------------------------------------------------------------
+
+async function refreshFilterOptions() {
+  const options = await fetchFilterOptions();
+  if (!options) return;
+  populateFilterForm(historyForm, options);
+  populateFilterForm(presaleForm, options);
+}
+
+refreshFilterOptions();

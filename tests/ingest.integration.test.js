@@ -24,6 +24,7 @@ import {
   loadApp,
   startServer,
   stopServer,
+  authAsAdmin,
 } from "./helpers/dbIntegration.js";
 
 const XLSX_MIME =
@@ -34,6 +35,7 @@ let repositories;
 let app;
 let server;
 let baseUrl;
+let authHeaders;
 
 before(async () => {
   if (DB_SKIP) return;
@@ -47,6 +49,8 @@ before(async () => {
 beforeEach(async () => {
   if (DB_SKIP) return;
   await repositories.truncateAll();
+  // truncateAll clears admins, so mint a fresh admin session per test.
+  authHeaders = await authAsAdmin(baseUrl);
 });
 
 after(async () => {
@@ -78,6 +82,7 @@ async function uploadWorkbook(buffer, { type, filename = "book.xlsx" } = {}) {
   if (type) form.append("type", type);
   const res = await fetch(`${baseUrl}/api/ingest/upload`, {
     method: "POST",
+    headers: { ...authHeaders },
     body: form,
   });
   const json = await res.json();
@@ -163,6 +168,58 @@ test(
 );
 
 test(
+  "POST /api/ingest/upload persists the optional Presale categorical columns (DC_Name/StoreName/StoreGroup/Store Area/CustomerType)",
+  { skip: DB_SKIP },
+  async () => {
+    const headers = [
+      "CustomerName",
+      "DELIVERY_DATE",
+      "จำนวน Presale",
+      "DC_Name",
+      "StoreName",
+      "StoreGroup",
+      "Store Area",
+      "CustomerType",
+    ];
+    const rows = [
+      ["12345 ร้านสมชาย", "2026-02-01", 20, "DC Bangkok", "SALES-01", "MT", "Central", "KA"],
+      // Older-style row without the categorical columns still ingests.
+      ["67890 ร้านสมหญิง", "2026-02-01", 8, "", "", "", "", ""],
+    ];
+
+    const { res, json } = await uploadWorkbook(await buildWorkbook(headers, rows), {
+      type: "presale",
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(json.mapped, 2);
+
+    const joined = await repositories.joinPresale();
+    const byCode = Object.fromEntries(
+      joined.map((j) => [j.presale.customerCode, j.presale])
+    );
+
+    assert.deepEqual(
+      {
+        dcName: byCode["12345"].dcName,
+        storeName: byCode["12345"].storeName,
+        storeGroup: byCode["12345"].storeGroup,
+        storeArea: byCode["12345"].storeArea,
+        customerType: byCode["12345"].customerType,
+      },
+      {
+        dcName: "DC Bangkok",
+        storeName: "SALES-01",
+        storeGroup: "MT",
+        storeArea: "Central",
+        customerType: "KA",
+      }
+    );
+    assert.equal(byCode["67890"].dcName, null);
+  }
+);
+
+test(
   "POST /api/ingest/upload persists a History workbook (rows joinable in Postgres)",
   { skip: DB_SKIP },
   async () => {
@@ -185,5 +242,22 @@ test(
     assert.equal(joined.length, 2);
     const codes = joined.map((j) => j.history.customerCode).sort();
     assert.deepEqual(codes, ["12345", "67890"]);
+  }
+);
+
+test(
+  "POST /api/ingest/upload rejects an unauthenticated upload with 401",
+  { skip: DB_SKIP },
+  async () => {
+    const headers = ["Customer_Code", "TIME_VISIT", "จำนวนลง"];
+    const buffer = await buildWorkbook(headers, [["12345", "2026-01-10T09:15:00", 12]]);
+
+    const form = new FormData();
+    form.append("file", new Blob([buffer], { type: XLSX_MIME }), "book.xlsx");
+    form.append("type", "history");
+
+    // No Authorization header -> gated by requireAdmin.
+    const res = await fetch(`${baseUrl}/api/ingest/upload`, { method: "POST", body: form });
+    assert.equal(res.status, 401);
   }
 );

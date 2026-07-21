@@ -15,6 +15,19 @@
 import { drivingDistanceKm } from "./distance.js";
 
 /**
+ * Resolve the depot a route actually starts/ends at: the vehicle's own depot
+ * when it has one (e.g. a store's assigned DC), otherwise the plan-level
+ * depot. Additive — a `vehicle.depot` is entirely optional, so callers that
+ * never set it see unchanged behavior.
+ * @param {{lat:number,lng:number}} depot  plan-level fallback depot
+ * @param {{depot?:{lat:number,lng:number}}} [vehicle]
+ * @returns {{lat:number,lng:number}}
+ */
+export function depotForVehicle(depot, vehicle) {
+  return (vehicle && vehicle.depot) || depot;
+}
+
+/**
  * Total driving distance (km) of a route: depot -> stops... -> depot.
  * @param {{lat:number,lng:number}} depot
  * @param {Array<{location:{lat:number,lng:number}}>} stops
@@ -35,6 +48,12 @@ export function routeDistanceKm(depot, stops) {
  */
 function twoOpt(depot, stops) {
   if (stops.length < 3) return stops;
+
+  // Safety valve: 2-opt costs ~O(n^2) per improving pass, so a pathologically
+  // large single route would hang the process. Above this size, skip refinement
+  // and keep the nearest-neighbour order (callers that need many stops should
+  // split them across vehicles). Normal routes are far below this bound.
+  if (stops.length > 300) return stops.slice();
 
   let best = stops.slice();
   let improved = true;
@@ -62,7 +81,9 @@ function twoOpt(depot, stops) {
 }
 
 /**
- * Greedy nearest-neighbour assignment respecting vehicle capacity.
+ * Greedy nearest-neighbour assignment respecting vehicle capacity. Each
+ * vehicle's route starts from ITS OWN depot when `vehicle.depot` is set (e.g.
+ * a store's assigned DC), otherwise the plan-level `depot`.
  */
 function assignOrders(depot, vehicles, orders) {
   const unassigned = new Set(orders.map((o) => o.id));
@@ -75,7 +96,8 @@ function assignOrders(depot, vehicles, orders) {
   for (const vehicle of fleet) {
     const stops = [];
     let load = 0;
-    let current = depot;
+    const vehicleDepot = depotForVehicle(depot, vehicle);
+    let current = vehicleDepot;
 
     while (unassigned.size > 0) {
       let nearestId = null;
@@ -100,7 +122,7 @@ function assignOrders(depot, vehicles, orders) {
       unassigned.delete(nearestId);
     }
 
-    routes.push({ vehicle, stops, load });
+    routes.push({ vehicle, stops, load, depot: vehicleDepot });
   }
 
   const unassignedOrders = [...unassigned].map((id) => orderById.get(id));
@@ -111,23 +133,31 @@ function assignOrders(depot, vehicles, orders) {
  * Solve the CVRP.
  *
  * @param {object} input
- * @param {{lat:number,lng:number}} input.depot
- * @param {Array<{id:string,capacity:number,fuelType?:string,speedKmh?:number}>} input.vehicles
+ * @param {{lat:number,lng:number}} input.depot  plan-level depot; used for any
+ *   vehicle that does not set its own `depot`.
+ * @param {Array<{id:string,capacity:number,fuelType?:string,speedKmh?:number,
+ *   depot?:{lat:number,lng:number}}>} input.vehicles  a vehicle MAY carry its
+ *   own `depot` (e.g. a store's assigned DC) so its route starts/ends there
+ *   instead of the plan-level depot — used by presale planning, where each
+ *   vehicle IS a store.
  * @param {Array<{id:string,demand:number,location:{lat:number,lng:number}}>} input.orders
- * @returns {{routes:Array,unassignedOrders:Array}}
+ * @returns {{routes:Array<{vehicle:object, stops:Array, load:number,
+ *   depot:{lat:number,lng:number}, distanceKm:number}>, unassignedOrders:Array}}
+ *   each route additionally reports the RESOLVED `depot` it actually used.
  */
 export function solveCVRP({ depot, vehicles, orders }) {
   if (!vehicles?.length) throw new Error("At least one vehicle is required");
 
   const { routes, unassignedOrders } = assignOrders(depot, vehicles, orders);
 
-  const optimizedRoutes = routes.map(({ vehicle, stops, load }) => {
-    const optimizedStops = twoOpt(depot, stops);
+  const optimizedRoutes = routes.map(({ vehicle, stops, load, depot: vehicleDepot }) => {
+    const optimizedStops = twoOpt(vehicleDepot, stops);
     return {
       vehicle,
       stops: optimizedStops,
       load,
-      distanceKm: routeDistanceKm(depot, optimizedStops),
+      depot: vehicleDepot,
+      distanceKm: routeDistanceKm(vehicleDepot, optimizedStops),
     };
   });
 

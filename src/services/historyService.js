@@ -25,9 +25,11 @@
  */
 
 import { solveCVRP, routeDistanceKm } from "../optimizer/vrp.js";
+import { co2ForDistance } from "../optimizer/emissions.js";
 import { etasFromLegs } from "./etaService.js";
 import { createRouter } from "../routing/router.js";
 import { depot as sampleDepot } from "../data/sampleData.js";
+import { resolveDcByName } from "../data/dcList.js";
 import * as realRepositories from "../db/repositories.js";
 
 /** Default depot reused from the existing sample scenario (Bangkok DC). */
@@ -37,6 +39,16 @@ const DEFAULT_DEPOT = { lat: sampleDepot.lat, lng: sampleDepot.lng };
 const DEFAULT_SPEED_KMH = 35;
 
 /**
+ * Upper bound on the number of distinct customers a single comparison will
+ * optimize. The comparison packs EVERY customer into one notional route and
+ * runs a 2-opt refinement, which is superlinear; an unfiltered whole-dataset
+ * request (thousands of stops) would otherwise peg the CPU and never return.
+ * A route-sized cap keeps the comparison both fast and meaningful — the caller
+ * narrows the set with filters (DC, store, area, date range) to stay under it.
+ */
+const MAX_COMPARISON_CUSTOMERS = 150;
+
+/**
  * Guard messages returned (not thrown) for the count / no-match cases. Exported
  * so callers and tests can reference them without hard-coding brittle strings.
  */
@@ -44,6 +56,10 @@ export const HISTORY_MESSAGES = {
   NO_RECORDS_SELECTED: "no records selected",
   NEEDS_TWO_CUSTOMERS: "a comparison requires at least two customers",
   NO_RECORDS_MATCHED: "no records matched",
+  NO_ROUTABLE_CUSTOMERS:
+    "no routable customers — the matched history rows have no resolvable " +
+    "shop coordinates (upload a Shop_Master workbook with matching " +
+    "Customer_Code rows, or check that their lat/long resolved)",
 };
 
 /**
@@ -114,6 +130,21 @@ function visitOrderKey(value) {
   }
   const t = new Date(s).getTime();
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/**
+ * Derive a depot from the filter's `StoreName` (preferred, more specific) or
+ * `DC_Name`, via each string's leading 4-digit DC code (see `data/dcList.js`).
+ * `null` when neither filter is supplied, or the supplied value's code does
+ * not match a known DC.
+ *
+ * @param {object} [filters]
+ * @returns {{lat:number,lng:number}|null}
+ */
+function depotFromFilters(filters) {
+  if (!filters) return null;
+  const dc = resolveDcByName(filters.StoreName) ?? resolveDcByName(filters.DC_Name);
+  return dc ? { lat: dc.lat, lng: dc.lng } : null;
 }
 
 /**
@@ -256,28 +287,41 @@ async function etasByCode(router, depot, stops, departAt, speedKmh) {
  *
  * @param {object} [input]
  * @param {object} [input.filters]   history filter criteria (Requirement 4)
- * @param {{lat:number,lng:number}} [input.depot]
+ * @param {{lat:number,lng:number}} [input.depot]  explicit depot; when omitted,
+ *   derived from the filter's StoreName (preferred) or DC_Name via its leading
+ *   4-digit DC code (see `data/dcList.js`), falling back to the sample depot
+ *   when neither is supplied or resolves to a known DC.
  * @param {{id?:string, speedKmh?:number}} [input.vehicle]  notional vehicle
  * @param {Date} [input.departAt]
  * @param {{ repositories?: object, router?: object }} [input.deps]
  *   Injectable dependencies; default to the real repository module and the
  *   configured router. Property tests pass in-memory fakes here.
  * @returns {Promise<
- *   { customers: Array<{ customerCode:string, customer:string,
+ *   { depot:{lat:number,lng:number},
+ *     customers: Array<{ customerCode:string, customer:string,
+ *       location:{lat:number,lng:number}|null,
  *       historicalSeq:number, optimizedSeq:number,
  *       historicalEta:string|null, optimizedEta:string|null }>,
- *     historicalDistanceKm:number, optimizedDistanceKm:number }
+ *     historicalDistanceKm:number, optimizedDistanceKm:number,
+ *     historicalCo2Kg:number, optimizedCo2Kg:number }
  *   | { message: string }>}
  */
 export async function compareHistory({
   filters = {},
-  depot = DEFAULT_DEPOT,
+  depot,
   vehicle,
   departAt = new Date(),
   deps = {},
 } = {}) {
   const repositories = deps.repositories || realRepositories;
   const router = deps.router || createRouter();
+
+  // Resolve the depot: an explicit `depot` wins; otherwise derive it from the
+  // filter's StoreName (preferred) or DC_Name — each store's leading 4-digit
+  // code identifies its DC (see data/dcList.js), so the comparison's single
+  // notional route starts/ends at THAT store's DC. Falls back to the sample
+  // depot when neither is supplied or resolves to a known DC.
+  const resolvedDepot = depot ?? depotFromFilters(filters) ?? DEFAULT_DEPOT;
 
   const joined = await repositories.joinHistory();
   const records = applyHistoryFilters(joined, filters);
@@ -294,10 +338,25 @@ export async function compareHistory({
   const historicalCustomers = distinctResolvableCustomers(records);
 
   if (historicalCustomers.length === 0) {
-    return { message: HISTORY_MESSAGES.NO_RECORDS_SELECTED }; // Req 3.7
+    // `records` is non-empty here (the length===0 guard above already handled
+    // that case), so this is NOT "no records selected" — real history rows
+    // matched, but none of them joined to a shop with resolvable coordinates.
+    // Report that distinctly rather than reusing the "nothing selected" message,
+    // which reads as if the filter itself failed.
+    return { message: HISTORY_MESSAGES.NO_ROUTABLE_CUSTOMERS }; // Req 3.7 (routable variant)
   }
   if (historicalCustomers.length === 1) {
     return { message: HISTORY_MESSAGES.NEEDS_TWO_CUSTOMERS }; // Req 3.6
+  }
+  if (historicalCustomers.length > MAX_COMPARISON_CUSTOMERS) {
+    // Guard against optimizing an unfiltered whole-dataset request as one giant
+    // route (which would hang the solver). Ask the caller to narrow the set.
+    return {
+      message:
+        `Too many customers (${historicalCustomers.length}) for one comparison. ` +
+        `Apply a filter (DC, store, area, or date range) to narrow to a ` +
+        `route-sized set of ${MAX_COMPARISON_CUSTOMERS} or fewer.`,
+    };
   }
 
   const speedKmh = (vehicle && vehicle.speedKmh) || DEFAULT_SPEED_KMH;
@@ -310,7 +369,7 @@ export async function compareHistory({
     capacity: orders.length,
     speedKmh,
   };
-  const { routes } = solveCVRP({ depot, vehicles: [notionalVehicle], orders });
+  const { routes } = solveCVRP({ depot: resolvedDepot, vehicles: [notionalVehicle], orders });
   const optimizedStops = routes.flatMap((route) => route.stops);
 
   const historicalStops = historicalCustomers.map((customer) => ({
@@ -323,8 +382,8 @@ export async function compareHistory({
 
   // Per-customer ETAs for BOTH orderings (Requirement 3.3).
   const [historicalEtas, optimizedEtas] = await Promise.all([
-    etasByCode(router, depot, historicalStops, departAt, speedKmh),
-    etasByCode(router, depot, optimizedStops, departAt, speedKmh),
+    etasByCode(router, resolvedDepot, historicalStops, departAt, speedKmh),
+    etasByCode(router, resolvedDepot, optimizedStops, departAt, speedKmh),
   ]);
 
   // Sequence positions per ordering (1-based).
@@ -336,9 +395,12 @@ export async function compareHistory({
   );
 
   // Per-customer rows, emitted in historical order (Requirement 3.4).
+  // `location` is included so callers (e.g. the dashboard map) can plot each
+  // stop; it is additive and does not affect the comparison itself.
   const customers = historicalCustomers.map((customer) => ({
     customerCode: customer.customerCode,
     customer: customer.customer,
+    location: customer.location,
     historicalSeq: historicalSeqByCode.get(customer.customerCode),
     optimizedSeq: optimizedSeqByCode.get(customer.customerCode),
     historicalEta: historicalEtas.get(customer.customerCode) ?? null,
@@ -346,10 +408,22 @@ export async function compareHistory({
   }));
 
   // Totals: depot -> stops -> depot distance of each ordering (Requirement 3.5).
-  const historicalDistanceKm = round(routeDistanceKm(depot, historicalStops));
-  const optimizedDistanceKm = round(routeDistanceKm(depot, optimizedStops));
+  const historicalDistanceKm = round(routeDistanceKm(resolvedDepot, historicalStops));
+  const optimizedDistanceKm = round(routeDistanceKm(resolvedDepot, optimizedStops));
 
-  return { customers, historicalDistanceKm, optimizedDistanceKm };
+  // CO2 estimate for each ordering, using the default (diesel) emission factor
+  // so the dashboard can show an emissions saving alongside the distance saving.
+  const historicalCo2Kg = round(co2ForDistance(historicalDistanceKm, {}));
+  const optimizedCo2Kg = round(co2ForDistance(optimizedDistanceKm, {}));
+
+  return {
+    depot: resolvedDepot,
+    customers,
+    historicalDistanceKm,
+    optimizedDistanceKm,
+    historicalCo2Kg,
+    optimizedCo2Kg,
+  };
 }
 
 function round(n) {

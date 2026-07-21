@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { haversineKm, drivingDistanceKm } from "../src/optimizer/distance.js";
 import { co2ForDistance, emissionFactorFor } from "../src/optimizer/emissions.js";
-import { solveCVRP, routeDistanceKm } from "../src/optimizer/vrp.js";
+import { solveCVRP, routeDistanceKm, depotForVehicle } from "../src/optimizer/vrp.js";
 import { computeETAs } from "../src/services/etaService.js";
 import { planDeliveries } from "../src/services/routeService.js";
 
@@ -68,6 +68,54 @@ test("2-opt does not increase route distance vs input order", () => {
   const naive = routeDistanceKm(depot, orders);
   const { routes } = solveCVRP({ depot, vehicles, orders });
   assert.ok(routes[0].distanceKm <= naive + 1e-6);
+});
+
+// ---------------------------------------------------------------------------
+// Per-vehicle depot (a store's own DC as start/end point)
+// ---------------------------------------------------------------------------
+
+test("depotForVehicle: uses the vehicle's own depot when set, else the plan-level depot", () => {
+  const planDepot = { lat: 13.75, lng: 100.5 };
+  const vehicleDepot = { lat: 13.93, lng: 100.43 };
+  assert.deepEqual(depotForVehicle(planDepot, { depot: vehicleDepot }), vehicleDepot);
+  assert.deepEqual(depotForVehicle(planDepot, { depot: undefined }), planDepot);
+  assert.deepEqual(depotForVehicle(planDepot, {}), planDepot);
+  assert.deepEqual(depotForVehicle(planDepot, undefined), planDepot);
+});
+
+test("solveCVRP: a vehicle with its own depot starts/ends its route there, not at the plan depot", () => {
+  const planDepot = { lat: 13.75, lng: 100.5 };
+  const storeDepot = { lat: 14.0, lng: 100.9 }; // far from planDepot and the stops
+  const vehicles = [
+    { id: "STORE-A", capacity: 100, fuelType: "diesel", depot: storeDepot },
+  ];
+  const orders = [
+    { id: "A", demand: 10, location: { lat: 13.76, lng: 100.51 } },
+    { id: "B", demand: 10, location: { lat: 13.77, lng: 100.52 } },
+  ];
+
+  const { routes } = solveCVRP({ depot: planDepot, vehicles, orders });
+  assert.equal(routes.length, 1);
+  assert.deepEqual(routes[0].depot, storeDepot);
+
+  // The reported route distance must match a route computed against the
+  // vehicle's own depot, NOT the plan-level depot.
+  const expected = routeDistanceKm(storeDepot, routes[0].stops);
+  assert.equal(routes[0].distanceKm, expected);
+  assert.notEqual(routes[0].distanceKm, routeDistanceKm(planDepot, routes[0].stops));
+});
+
+test("solveCVRP: a vehicle with no depot falls back to the plan-level depot (unchanged behavior)", () => {
+  const planDepot = { lat: 13.75, lng: 100.5 };
+  const vehicles = [{ id: "V1", capacity: 100, fuelType: "diesel" }]; // no `depot`
+  const orders = [
+    { id: "A", demand: 10, location: { lat: 13.76, lng: 100.51 } },
+    { id: "B", demand: 10, location: { lat: 13.77, lng: 100.52 } },
+  ];
+
+  const { routes } = solveCVRP({ depot: planDepot, vehicles, orders });
+  assert.deepEqual(routes[0].depot, planDepot);
+  assert.equal(routes[0].distanceKm, routeDistanceKm(planDepot, routes[0].stops));
 });
 
 test("ETAs are strictly increasing in time", () => {
@@ -145,6 +193,29 @@ test("planDeliveries: ETAs and distance come from the injected router", async ()
   assert.equal(plan.routes[0].stops[0].eta, "2026-01-01T08:06:00.000Z");
   // Second stop: 6 min + 8 min service + 6 min travel -> 08:20.
   assert.equal(plan.routes[0].stops[1].eta, "2026-01-01T08:20:00.000Z");
+});
+
+test("planDeliveries: a route reports the vehicle's own depot when set (additive field)", async () => {
+  const planDepot = { lat: 13.75, lng: 100.5 };
+  const storeDepot = { lat: 14.0, lng: 100.9 };
+  const vehicles = [{ id: "STORE-A", capacity: 100, fuelType: "diesel", depot: storeDepot }];
+  const orders = [
+    { id: "A", demand: 10, location: { lat: 13.76, lng: 100.51 } },
+    { id: "B", demand: 10, location: { lat: 13.77, lng: 100.52 } },
+  ];
+
+  const plan = await planDeliveries({ depot: planDepot, vehicles, orders });
+  assert.equal(plan.routes.length, 1);
+  assert.deepEqual(plan.routes[0].depot, storeDepot);
+});
+
+test("planDeliveries: a route with no vehicle depot reports the plan-level depot", async () => {
+  const planDepot = { lat: 13.75, lng: 100.5 };
+  const vehicles = [{ id: "V1", capacity: 100, fuelType: "diesel" }];
+  const orders = [{ id: "A", demand: 10, location: { lat: 13.76, lng: 100.51 } }];
+
+  const plan = await planDeliveries({ depot: planDepot, vehicles, orders });
+  assert.deepEqual(plan.routes[0].depot, planDepot);
 });
 
 function round2(n) {

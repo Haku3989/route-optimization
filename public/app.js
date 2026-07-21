@@ -1,4 +1,26 @@
-/* Farmhouse Route Optimization — dashboard client. */
+/* Farmhouse Route Optimization — dashboard client.
+ *
+ * The dashboard has two data sources, switched with the topbar toggle:
+ *
+ *   • "History" (default) — POST /api/history/compare. Visualizes the ORIGINAL
+ *     delivery order (from the History workbook's TIME_VISIT) against a freshly
+ *     AI-optimized order for the same customers: two routes on the map, the
+ *     distance / CO₂ saving as metric cards, and a per-customer sequence diff in
+ *     the sidebar. This is the history-based optimizer view.
+ *   • "Sample plan" — GET /api/plan/sample. The original multi-vehicle sample
+ *     scenario (kept so the fleet-packing demo is still one click away).
+ *
+ * View shaping for the History source is delegated to the pure `planView.js`
+ * module (shared with the planner page); this file is only the DOM + Leaflet +
+ * fetch wiring. All server-provided text (customer names) is written with
+ * textContent / DOM APIs — never innerHTML — so untrusted content cannot inject
+ * markup.
+ */
+
+import { summarizeComparison, fmtEta, buildFilters } from "./planView.js";
+import * as progress from "./progress.js";
+import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
+import { fetchFilterOptions, populateFilterForm } from "./filterOptions.js";
 
 const ROUTE_COLORS = [
   "#ffb703",
@@ -9,8 +31,48 @@ const ROUTE_COLORS = [
   "#90be6d",
 ];
 
+// Colors for the two history orderings.
+const HIST_COLOR = "#f4795b"; // original (historical) order
+const OPT_COLOR = "#2dd4a7"; // AI-optimized order
+
 let map;
 let layerGroup;
+let currentSource = "history";
+
+// ---------------------------------------------------------------------------
+// Small safe-DOM helpers (text always via textContent)
+// ---------------------------------------------------------------------------
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = String(text);
+  return node;
+}
+
+function setChildren(container, nodes) {
+  container.textContent = "";
+  for (const n of nodes) if (n) container.appendChild(n);
+}
+
+/** Read a form's named inputs + selects into a raw `{ name: value }` map. */
+function readFormInputs(form) {
+  const inputs = {};
+  for (const field of form.querySelectorAll("input[name], select[name]")) {
+    inputs[field.name] = field.value;
+  }
+  return inputs;
+}
+
+/** Current History filter criteria, trimmed + empties dropped. */
+function currentHistoryFilters() {
+  const form = document.getElementById("historyFilters");
+  return buildFilters(readFormInputs(form));
+}
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
 
 function initMap() {
   map = L.map("map").setView([13.7563, 100.5018], 11);
@@ -21,37 +83,213 @@ function initMap() {
   layerGroup = L.layerGroup().addTo(map);
 }
 
-function fmtTime(iso) {
-  if (!iso) return "--:--";
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
+function depotMarker(depot, bounds) {
+  if (!depot) return;
+  L.marker([depot.lat, depot.lng], { title: "Depot" })
+    .bindPopup(`<b>Depot</b><br>${depot.name || depot.id || "Distribution Center"}`)
+    .addTo(layerGroup);
+  bounds.push([depot.lat, depot.lng]);
+}
+
+function fitBounds(bounds) {
+  if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+// ---------------------------------------------------------------------------
+// Metric cards (shared renderer)
+// ---------------------------------------------------------------------------
+
+function renderMetricCards(cards) {
+  const nodes = cards.map((c) => {
+    const card = el("div", "metric-card");
+    card.appendChild(el("div", "label", c.label));
+    card.appendChild(el("div", "value", c.value));
+    if (c.sub) card.appendChild(el("div", "sub", c.sub));
+    return card;
   });
+  setChildren(document.getElementById("metrics"), nodes);
 }
 
-async function optimize() {
-  const btn = document.getElementById("optimizeBtn");
-  btn.disabled = true;
-  btn.textContent = "Optimizing…";
+// ===========================================================================
+// History source (default)
+// ===========================================================================
 
-  try {
-    const res = await fetch("/api/plan/sample");
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    const plan = await res.json();
-    renderMetrics(plan.metrics);
-    renderMap(plan);
-    renderRoutes(plan);
-  } catch (err) {
-    document.getElementById("routes").innerHTML =
-      `<p class="hint">Failed to load plan: ${err.message}</p>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Re-optimize";
+async function loadHistory() {
+  const res = await fetch("/api/history/compare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...adminAuthHeader() },
+    body: JSON.stringify({ filters: currentHistoryFilters() }),
+  });
+  if (handledUnauthorized(res)) return;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `API error ${res.status}`);
+
+  const vm = summarizeComparison(data);
+  if (vm.isMessage) {
+    renderHistoryMessage(vm.message);
+    return;
   }
+  renderHistoryMetrics(vm);
+  renderHistoryMap(vm);
+  renderHistorySidebar(vm);
 }
 
-function renderMetrics(m) {
-  const cards = [
+function renderHistoryMessage(message) {
+  renderMetricCards([]);
+  layerGroup.clearLayers();
+
+  const box = el("div", "message-box", message);
+  const hint = el(
+    "p",
+    "hint",
+    "Apply a filter above to compare a route-sized set of customers, or upload the " +
+      "History and Shop_Master workbooks on the planner page (a customer needs a " +
+      "matching, resolvable Shop_Master row to be routable).",
+  );
+  const link = el("a", "btn secondary", "Go to route planner input");
+  link.href = "plan.html";
+  setChildren(document.getElementById("routes"), [box, hint, link]);
+}
+
+function renderHistoryMetrics(vm) {
+  renderMetricCards([
+    { label: "Customers", value: String(vm.rows.length) },
+    {
+      label: "Historical distance",
+      value: `${vm.historicalDistanceKm} km`,
+      sub: "original TIME_VISIT order",
+    },
+    {
+      label: "Optimized distance",
+      value: `${vm.optimizedDistanceKm} km`,
+      sub: `−${vm.savedKm} km (${vm.savedPct}%) vs historical`,
+    },
+    {
+      label: "CO₂ emissions",
+      value: `${vm.optimizedCo2Kg} kg`,
+      sub: `−${vm.co2SavedKg} kg saved`,
+    },
+  ]);
+}
+
+function orderedLatLngs(rows, seqKey, depot) {
+  const stops = rows
+    .filter((r) => r.location)
+    .slice()
+    .sort((a, b) => a[seqKey] - b[seqKey])
+    .map((r) => [r.location.lat, r.location.lng]);
+  if (!depot || stops.length === 0) return stops;
+  return [[depot.lat, depot.lng], ...stops, [depot.lat, depot.lng]];
+}
+
+function renderHistoryMap(vm) {
+  layerGroup.clearLayers();
+  const bounds = [];
+  depotMarker(vm.depot, bounds);
+
+  // Historical route: dashed amber. Optimized route: solid green.
+  const histLine = orderedLatLngs(vm.rows, "historicalSeq", vm.depot);
+  const optLine = orderedLatLngs(vm.rows, "optimizedSeq", vm.depot);
+
+  if (histLine.length > 1) {
+    L.polyline(histLine, {
+      color: HIST_COLOR,
+      weight: 3,
+      opacity: 0.7,
+      dashArray: "6 8",
+    }).addTo(layerGroup);
+  }
+  if (optLine.length > 1) {
+    L.polyline(optLine, { color: OPT_COLOR, weight: 3, opacity: 0.9 }).addTo(layerGroup);
+  }
+
+  // One marker per customer, labelled with its optimized position.
+  for (const r of vm.rows) {
+    if (!r.location) continue;
+    const { lat, lng } = r.location;
+    bounds.push([lat, lng]);
+    L.circleMarker([lat, lng], {
+      radius: 8,
+      color: OPT_COLOR,
+      fillColor: OPT_COLOR,
+      fillOpacity: 0.9,
+      weight: 2,
+    })
+      .bindPopup(
+        `<b>${escapeHtml(r.customer || r.customerCode || "Customer")}</b><br>` +
+          `Historical #${r.historicalSeq} · ETA ${fmtEta(r.historicalEta)}<br>` +
+          `Optimized #${r.optimizedSeq} · ETA ${fmtEta(r.optimizedEta)}`,
+      )
+      .addTo(layerGroup);
+  }
+
+  fitBounds(bounds);
+}
+
+function renderHistorySidebar(vm) {
+  const nodes = [];
+
+  // Legend explaining the two routes.
+  const legend = el("div", "legend");
+  legend.appendChild(legendItem(HIST_COLOR, "Historical order", true));
+  legend.appendChild(legendItem(OPT_COLOR, "AI-optimized order", false));
+  nodes.push(legend);
+
+  // Per-customer sequence diff, listed in the optimized order.
+  const list = el("ul", "stop-list");
+  const ordered = vm.rows.slice().sort((a, b) => a.optimizedSeq - b.optimizedSeq);
+  for (const r of ordered) {
+    const li = el("li");
+    li.appendChild(el("span", "seq", r.optimizedSeq));
+
+    const info = el("div", "stop-info");
+    info.appendChild(el("div", "name", r.customer || r.customerCode || "—"));
+
+    const moved = r.historicalSeq - r.optimizedSeq;
+    const move =
+      moved === 0 ? "unchanged" : moved > 0 ? `▲ up ${moved}` : `▼ down ${-moved}`;
+    info.appendChild(
+      el(
+        "div",
+        "eta",
+        `was #${r.historicalSeq} (${move}) · ETA ${fmtEta(r.historicalEta)} → ${fmtEta(r.optimizedEta)}`,
+      ),
+    );
+    li.appendChild(info);
+    list.appendChild(li);
+  }
+  nodes.push(list);
+
+  setChildren(document.getElementById("routes"), nodes);
+}
+
+function legendItem(color, label, dashed) {
+  const item = el("div", "legend-item");
+  const sw = el("span", "line-swatch");
+  sw.style.background = dashed
+    ? `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 12px)`
+    : color;
+  item.appendChild(sw);
+  item.appendChild(el("span", null, label));
+  return item;
+}
+
+// ===========================================================================
+// Sample-plan source (original multi-vehicle demo)
+// ===========================================================================
+
+async function loadSample() {
+  const res = await fetch("/api/plan/sample", { headers: { ...adminAuthHeader() } });
+  if (handledUnauthorized(res)) return;
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const plan = await res.json();
+  renderSampleMetrics(plan.metrics);
+  renderSampleMap(plan);
+  renderSampleRoutes(plan);
+}
+
+function renderSampleMetrics(m) {
+  renderMetricCards([
     { label: "Orders served", value: `${m.ordersServed}/${m.totalOrders}` },
     { label: "Vehicles used", value: `${m.vehiclesUsed}/${m.fleetSize}` },
     {
@@ -64,35 +302,18 @@ function renderMetrics(m) {
       value: `${m.optimizedCo2Kg} kg`,
       sub: `−${m.co2SavedKg} kg (${m.co2SavedPct}%) saved`,
     },
-  ];
-
-  document.getElementById("metrics").innerHTML = cards
-    .map(
-      (c) => `
-      <div class="metric-card">
-        <div class="label">${c.label}</div>
-        <div class="value">${c.value}</div>
-        ${c.sub ? `<div class="sub">${c.sub}</div>` : ""}
-      </div>`
-    )
-    .join("");
+  ]);
 }
 
-function renderMap(plan) {
+function renderSampleMap(plan) {
   layerGroup.clearLayers();
   const bounds = [];
-
-  // Depot marker.
-  const depot = plan.depot;
-  L.marker([depot.lat, depot.lng], { title: "Depot" })
-    .bindPopup(`<b>Depot</b><br>${depot.name || depot.id || "Distribution Center"}`)
-    .addTo(layerGroup);
-  bounds.push([depot.lat, depot.lng]);
+  depotMarker(plan.depot, bounds);
 
   plan.routes.forEach((route, idx) => {
     if (route.stops.length === 0) return;
     const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
-    const line = [[depot.lat, depot.lng]];
+    const line = [[plan.depot.lat, plan.depot.lng]];
 
     route.stops.forEach((stop) => {
       const { lat, lng } = stop.location;
@@ -107,70 +328,166 @@ function renderMap(plan) {
         weight: 2,
       })
         .bindPopup(
-          `<b>${stop.sequence}. ${stop.customer}</b><br>` +
-            `${route.vehicleId} · ETA ${fmtTime(stop.eta)}<br>` +
-            `Demand: ${stop.demand} units`
+          `<b>${stop.sequence}. ${escapeHtml(stop.customer)}</b><br>` +
+            `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}<br>` +
+            `Demand: ${stop.demand} units`,
         )
         .addTo(layerGroup);
     });
 
-    line.push([depot.lat, depot.lng]);
+    line.push([plan.depot.lat, plan.depot.lng]);
     L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(layerGroup);
   });
 
-  if (bounds.length > 1) {
-    map.fitBounds(bounds, { padding: [40, 40] });
-  }
+  fitBounds(bounds);
 }
 
-function renderRoutes(plan) {
-  const container = document.getElementById("routes");
+function renderSampleRoutes(plan) {
   const active = plan.routes.filter((r) => r.stops.length > 0);
+  const nodes = active.map((route, idx) => {
+    const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
+    const isEv = route.fuelType === "ev";
 
-  let html = active
-    .map((route, idx) => {
-      const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
-      const isEv = route.fuelType === "ev";
-      const stops = route.stops
-        .map(
-          (s) => `
-        <li>
-          <span class="seq">${s.sequence}</span>
-          <div class="stop-info">
-            <div class="name">${s.customer}</div>
-            <div class="eta">ETA ${fmtTime(s.eta)} · ${s.demand} units · ${s.cumulativeKm} km</div>
-          </div>
-        </li>`
-        )
-        .join("");
+    const card = el("div", "route-card");
 
-      return `
-      <div class="route-card">
-        <div class="route-head">
-          <div class="veh">
-            <span class="swatch" style="background:${color}"></span>
-            ${route.vehicleId}
-          </div>
-          <span class="tag ${isEv ? "ev" : ""}">${route.fuelType}</span>
-        </div>
-        <div class="route-meta">
-          ${route.stops.length} stops · ${route.distanceKm} km ·
-          ${route.co2Kg} kg CO₂ · load ${route.load}/${route.capacity}
-        </div>
-        <ul class="stop-list">${stops}</ul>
-      </div>`;
-    })
-    .join("");
+    const head = el("div", "route-head");
+    const veh = el("div", "veh");
+    const sw = el("span", "swatch");
+    sw.style.background = color;
+    veh.appendChild(sw);
+    veh.appendChild(el("span", null, route.vehicleId));
+    head.appendChild(veh);
+    head.appendChild(el("span", `tag ${isEv ? "ev" : ""}`, route.fuelType));
+    card.appendChild(head);
+
+    card.appendChild(
+      el(
+        "div",
+        "route-meta",
+        `${route.stops.length} stops · ${route.distanceKm} km · ` +
+          `${route.co2Kg} kg CO₂ · load ${route.load}/${route.capacity}`,
+      ),
+    );
+
+    const list = el("ul", "stop-list");
+    for (const s of route.stops) {
+      const li = el("li");
+      li.appendChild(el("span", "seq", s.sequence));
+      const info = el("div", "stop-info");
+      info.appendChild(el("div", "name", s.customer));
+      info.appendChild(
+        el("div", "eta", `ETA ${fmtEta(s.eta)} · ${s.demand} units · ${s.cumulativeKm} km`),
+      );
+      li.appendChild(info);
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+    return card;
+  });
 
   if (plan.unassignedOrders.length > 0) {
-    html += `<p class="hint">Unassigned (over capacity): ${plan.unassignedOrders
-      .map((o) => o.orderId)
-      .join(", ")}</p>`;
+    nodes.push(
+      el(
+        "p",
+        "hint",
+        `Unassigned (over capacity): ${plan.unassignedOrders.map((o) => o.orderId).join(", ")}`,
+      ),
+    );
   }
 
-  container.innerHTML = html || `<p class="hint">No routes generated.</p>`;
+  if (nodes.length === 0) nodes.push(el("p", "hint", "No routes generated."));
+  setChildren(document.getElementById("routes"), nodes);
 }
 
-initMap();
-document.getElementById("optimizeBtn").addEventListener("click", optimize);
-optimize();
+// ---------------------------------------------------------------------------
+// Leaflet popups use innerHTML; escape the few interpolated text values.
+// ---------------------------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration + toggle wiring
+// ---------------------------------------------------------------------------
+
+async function optimize() {
+  const btn = document.getElementById("optimizeBtn");
+  btn.disabled = true;
+  btn.textContent = "Optimizing…";
+  progress.start();
+  try {
+    if (currentSource === "sample") {
+      await loadSample();
+    } else {
+      await loadHistory();
+    }
+    progress.done();
+  } catch (err) {
+    progress.fail();
+    setChildren(document.getElementById("routes"), [
+      el("p", "hint", `Failed to load: ${err.message}`),
+    ]);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Re-optimize";
+  }
+}
+
+/** The filter bar only applies to the History source, so hide it otherwise. */
+function updateFilterVisibility() {
+  document.getElementById("historyFilters").hidden = currentSource !== "history";
+}
+
+function wireToggle() {
+  const toggle = document.getElementById("sourceToggle");
+  toggle.addEventListener("click", (event) => {
+    const seg = event.target.closest(".seg");
+    if (!seg) return;
+    const source = seg.dataset.source;
+    if (source === currentSource) return;
+
+    currentSource = source;
+    for (const s of toggle.querySelectorAll(".seg")) {
+      const active = s === seg;
+      s.classList.toggle("active", active);
+      s.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    updateFilterVisibility();
+    optimize();
+  });
+}
+
+function wireFilters() {
+  const form = document.getElementById("historyFilters");
+  // Applying filters re-runs the History comparison.
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    currentSource = "history";
+    optimize();
+  });
+  document.getElementById("clearFilters").addEventListener("click", () => {
+    form.reset();
+    currentSource = "history";
+    optimize();
+  });
+}
+
+// The dashboard is admin-gated: require a token before booting (otherwise the
+// data endpoints would 401). ensureAdmin() redirects to the login page.
+if (ensureAdmin()) {
+  initMap();
+  wireToggle();
+  wireFilters();
+  updateFilterVisibility();
+  document.getElementById("optimizeBtn").addEventListener("click", optimize);
+  // Populate the categorical filter dropdowns from the uploaded history data.
+  fetchFilterOptions().then((options) => {
+    if (options) populateFilterForm(document.getElementById("historyFilters"), options);
+  });
+  optimize();
+}

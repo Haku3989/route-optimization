@@ -1,22 +1,10 @@
 /* Farmhouse Route Planner — input page.
  *
- * Reuses the shared design tokens and .topbar / .btn / .hint styles from
- * styles.css; this file only adds the planner-specific layout (three stacked
- * panels), the filter grids, tables and result/log styling. Desktop-first
- * dashboard styling that still reflows to a single column on narrow screens.
+ * Reuses the shared Farmhouse design tokens and .topbar / .btn / .hint styles
+ * from styles.css; this file only adds the planner-specific layout (three
+ * stacked frosted-glass panels), the filter grids, tables and result/log
+ * styling. Desktop-first, reflowing to a single column on narrow screens.
  */
-
-a.btn {
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-}
-
-.btn.secondary {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-}
 
 .plan-layout {
   display: grid;
@@ -27,15 +15,19 @@ a.btn {
 }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
   padding: 18px 20px;
+  box-shadow: var(--glass-shadow);
 }
 
 .panel h2 {
   margin: 0 0 6px;
   font-size: 18px;
+  color: var(--text);
 }
 
 .panel h3 {
@@ -66,15 +58,15 @@ select {
   font-size: 15px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
   color: var(--text);
   width: 100%;
 }
 
 input:focus,
 select:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--barn);
   outline-offset: 1px;
 }
 
@@ -96,22 +88,24 @@ input[type="file"] {
 
 .result {
   margin-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(97, 58, 30, 0.15);
   padding-top: 14px;
 }
 
 .result .error-box {
-  background: rgba(248, 113, 113, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  color: #fca5a5;
+  background: rgba(192, 57, 43, 0.12);
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  color: var(--danger);
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 14px;
 }
 
 .result .message-box {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
   border-radius: 10px;
   padding: 14px 16px;
   color: var(--muted);
@@ -139,10 +133,11 @@ input[type="file"] {
 .summary-line .stat .v {
   font-size: 18px;
   font-weight: 700;
+  color: var(--text);
 }
 
 .summary-line .stat .v.saved {
-  color: var(--green);
+  color: var(--sage);
 }
 
 table.data {
@@ -155,7 +150,7 @@ table.data th,
 table.data td {
   text-align: left;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(97, 58, 30, 0.14);
 }
 
 table.data th {
@@ -165,7 +160,7 @@ table.data th {
 }
 
 table.data tbody tr:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(97, 58, 30, 0.06);
 }
 
 .chips {
@@ -179,15 +174,15 @@ table.data tbody tr:hover {
   font-size: 12px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
   color: var(--muted);
 }
 
 .route-block {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 12px;
 }
@@ -211,10 +206,38 @@ table.data tbody tr:hover {
   font-size: 14px;
   font-weight: 600;
   margin: 16px 0 8px;
+  color: var(--text);
 }
 
 .warn-title {
-  color: var(--accent);
+  color: var(--barn);
+}
+
+/* Collapsible upload-warnings section */
+.warnings-section {
+  margin-top: 4px;
+}
+
+.warnings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.warnings-header .section-title {
+  margin: 0;
+}
+
+.warnings-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.warnings-body .btn.small {
+  align-self: flex-start;
 }
 
 .upload-log {
@@ -228,8 +251,8 @@ table.data tbody tr:hover {
 
 .upload-log li {
   font-size: 13px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
   border-radius: 8px;
   padding: 8px 10px;
 }
@@ -241,9 +264,9 @@ table.data tbody tr:hover {
 }
 
 .upload-log .ok {
-  color: var(--green);
+  color: var(--sage);
 }
 
 .upload-log .fail {
-  color: #fca5a5;
+  color: var(--danger);
 }

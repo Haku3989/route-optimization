@@ -18,10 +18,13 @@
 import { Router } from "express";
 import { planDeliveries } from "../services/routeService.js";
 import { getScenario } from "../data/sampleData.js";
+import { distinctHistoryFilterValues } from "../db/repositories.js";
 import ingestRoutes from "./ingestRoutes.js";
 import historyRoutes from "./historyRoutes.js";
 import presaleRoutes from "./presaleRoutes.js";
 import driverRoutes from "./driverRoutes.js";
+import adminRoutes from "./adminRoutes.js";
+import { requireAdmin } from "./requireAdmin.js";
 
 const router = Router();
 
@@ -29,11 +32,32 @@ router.get("/health", (_req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
-router.get("/scenario", (_req, res) => {
+router.get("/scenario", requireAdmin, (_req, res) => {
   res.json(getScenario());
 });
 
-router.get("/plan/sample", async (_req, res, next) => {
+/**
+ * Distinct filter option lists sourced from the uploaded history data, keyed by
+ * the workbook column names the filter forms use. Powers the categorical filter
+ * dropdowns on the dashboard + planner. Admin-gated like the rest of the planner
+ * surface.
+ */
+router.get("/filters", requireAdmin, async (_req, res, next) => {
+  try {
+    const values = await distinctHistoryFilterValues();
+    res.json({
+      DC_Name: values.dcName,
+      StoreName: values.storeName,
+      StoreGroup: values.storeGroup,
+      "Store Area": values.storeArea,
+      CustomerType: values.customerType,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/plan/sample", requireAdmin, async (_req, res, next) => {
   try {
     const scenario = getScenario();
     const plan = await planDeliveries({
@@ -48,7 +72,7 @@ router.get("/plan/sample", async (_req, res, next) => {
   }
 });
 
-router.post("/plan", async (req, res, next) => {
+router.post("/plan", requireAdmin, async (req, res, next) => {
   try {
     const { depot, vehicles, orders, departAt } = req.body || {};
 
@@ -97,10 +121,16 @@ function validatePayload({ depot, vehicles, orders }) {
 
 // Excel Route Planning feature sub-routers. This router is mounted at `/api`
 // (see server.js), so these become /api/ingest/*, /api/history/*,
-// /api/presale/*, and /api/driver/*.
-router.use("/ingest", ingestRoutes);
-router.use("/history", historyRoutes);
-router.use("/presale", presaleRoutes);
+// /api/presale/*, /api/driver/*, and /api/admin/*.
+//
+// The ingest / history / presale routers are ADMIN-GATED (requireAdmin runs
+// before each sub-router). The driver router keeps its own driver-session auth,
+// and the admin router self-gates its user-management endpoints, so neither is
+// wrapped here.
+router.use("/ingest", requireAdmin, ingestRoutes);
+router.use("/history", requireAdmin, historyRoutes);
+router.use("/presale", requireAdmin, presaleRoutes);
 router.use("/driver", driverRoutes);
+router.use("/admin", adminRoutes);
 
 export default router;

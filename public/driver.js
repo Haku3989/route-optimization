@@ -19,6 +19,7 @@ import {
   EMPTY_MESSAGE,
   FALLBACK_MESSAGE,
 } from "./driverView.js";
+import * as progress from "./progress.js";
 
 const TOKEN_KEY = "farmhouse.driver.token";
 
@@ -217,6 +218,7 @@ async function handleLogin(event) {
   event.preventDefault();
   hideLoginError();
   loginBtn.disabled = true;
+  progress.start();
   try {
     const res = await fetch("/api/driver/login", {
       method: "POST",
@@ -228,6 +230,7 @@ async function handleLogin(event) {
     });
     if (!res.ok) {
       // Generic message — the server never reveals which field was wrong (Req 10.2).
+      progress.fail();
       showLoginError("Invalid username or password.");
       return;
     }
@@ -236,7 +239,9 @@ async function handleLogin(event) {
     passwordEl.value = "";
     showRouteView();
     await loadRoute();
+    progress.done();
   } catch (_) {
+    progress.fail();
     showLoginError("Could not sign in. Check your connection and try again.");
   } finally {
     loginBtn.disabled = false;
@@ -277,7 +282,10 @@ function init() {
   if (stored) {
     token = stored;
     showRouteView();
-    loadRoute();
+    progress.start();
+    // loadRoute() handles its own errors (never rejects), so finish the bar
+    // once it settles regardless of outcome.
+    loadRoute().finally(() => progress.done());
   } else {
     showLogin();
   }

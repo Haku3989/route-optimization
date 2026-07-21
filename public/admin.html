@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Login view: shown while unauthenticated. -->
+    <main id="loginView" class="auth-shell">
+      <section class="auth-card">
+        <div class="brand">
+          <span class="dot"></span>
+          <div>
+            <h1>Farmhouse Admin</h1>
+            <p>Sign in to manage users and routes</p>
+          </div>
+        </div>
+
+        <form id="loginForm" autocomplete="off">
+          <label for="username"
+            >Username
+            <input id="username" name="username" type="text" autocomplete="username" required />
+          </label>
+
+          <label for="password"
+            >Password
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+
+          <button id="loginBtn" type="submit" class="btn">Sign in</button>
+          <p id="loginError" class="auth-error" role="alert" hidden></p>
+        </form>
+
+        <p class="auth-foot">Delivery driver? <a href="driver.html">Driver sign in</a></p>
+      </section>
+    </main>
+
+    <!-- Console view: shown after authentication. -->
+    <div id="consoleView" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot"></span>
+          <div>
+            <h1>Farmhouse Admin</h1>
+            <p>User setup &amp; portal</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span id="whoami" class="hint"></span>
+          <a class="btn secondary" href="index.html">Dashboard</a>
+          <a class="btn secondary" href="plan.html">Planner</a>
+          <button id="logoutBtn" class="btn secondary">Log out</button>
+        </div>
+      </header>
+
+      <main class="admin-main">
+        <!-- Add-user menu (all user types). -->
+        <section class="admin-card">
+          <h2>User setup</h2>
+          <p class="hint">Create and manage accounts for every user type.</p>
+
+          <form id="addUserForm" class="admin-form" autocomplete="off">
+            <label
+              >Role
+              <select id="roleSelect" name="role">
+                <option value="driver">Driver</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label
+              >Username
+              <input name="username" type="text" autocomplete="off" required />
+            </label>
+            <label
+              >Password
+              <input name="password" type="password" autocomplete="new-password" required />
+            </label>
+            <label id="routeField"
+              >Store (route)
+              <select name="routeId">
+                <option value="">(none)</option>
+              </select>
+            </label>
+            <button id="addUserBtn" type="submit" class="btn">Add user</button>
+          </form>
+          <p id="addUserError" class="auth-error" role="alert" hidden></p>
+        </section>
+
+        <!-- Admins list. -->
+        <section class="admin-card">
+          <h2>Admins</h2>
+          <div id="adminList"><p class="hint">Loading…</p></div>
+        </section>
+
+        <!-- Drivers list. -->
+        <section class="admin-card">
+          <h2>Drivers</h2>
+          <div id="driverList"><p class="hint">Loading…</p></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="admin.js"></script>
+  </body>
+</html>

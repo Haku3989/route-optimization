@@ -329,6 +329,44 @@ test("compareHistory: zero records returns 'no records selected' (Req 3.7)", asy
   assert.deepEqual(result, { message: HISTORY_MESSAGES.NO_RECORDS_SELECTED });
 });
 
+test(
+  "compareHistory: matched rows with no resolvable shop coordinates report NO_ROUTABLE_CUSTOMERS, not NO_RECORDS_SELECTED",
+  async () => {
+    // The filter matches real rows, but neither customer's shop resolved to a
+    // location (e.g. no Shop_Master upload, or unmatched/unresolved coords).
+    // This must NOT be reported the same way as "you selected nothing".
+    const joined = [
+      {
+        history: {
+          customerCode: "C1",
+          customerName: "Shop 1",
+          timeVisit: "2026-01-01T08:00:00Z",
+          invoiceDate: "2026-01-01",
+          dcName: "DC_A",
+        },
+        shop: null, // no matching Shop_Master row
+      },
+      {
+        history: {
+          customerCode: "C2",
+          customerName: "Shop 2",
+          timeVisit: "2026-01-01T09:00:00Z",
+          invoiceDate: "2026-01-01",
+          dcName: "DC_A",
+        },
+        shop: { location: null, coordSource: "unresolved" }, // shop exists, coords didn't resolve
+      },
+    ];
+
+    const result = await compareHistory({
+      filters: { DC_Name: "DC_A" },
+      deps: { repositories: fakeRepos(joined), router: fakeRouter },
+    });
+
+    assert.deepEqual(result, { message: HISTORY_MESSAGES.NO_ROUTABLE_CUSTOMERS });
+  }
+);
+
 test("compareHistory: a single customer requires at least two (Req 3.6)", async () => {
   const joined = [
     {
@@ -456,4 +494,117 @@ test("historical order sorts bare time-of-day TIME_VISIT values chronologically"
     .map((r) => r.customerCode);
   // Chronological by time-of-day: 7:08 -> 9:30 -> 13:45.
   assert.deepEqual(order, ["C2", "C3", "C1"]);
+});
+
+// ---------------------------------------------------------------------------
+// Depot resolution — when no explicit `depot` is passed, compareHistory
+// derives it from the filter's StoreName (preferred) or DC_Name via each
+// string's leading 4-digit DC code (see data/dcList.js). Uses real DC codes
+// (1202 บางบัวทอง, 1103 พระยาสุเรนทร์).
+// ---------------------------------------------------------------------------
+
+/** Two resolvable customers, reused by the depot-resolution tests. */
+function twoResolvableHistoryRows() {
+  return [
+    {
+      history: {
+        customerCode: "C1",
+        customerName: "Shop 1",
+        timeVisit: "2026-01-01T09:00:00Z",
+        invoiceDate: "2026-01-01",
+        dcName: "1202 บางบัวทอง",
+        storeName: "120210 หน่วย ลิบ บางบัวทอง",
+      },
+      shop: { location: { lat: 13.72, lng: 100.53 }, coordSource: "master" },
+    },
+    {
+      history: {
+        customerCode: "C2",
+        customerName: "Shop 2",
+        timeVisit: "2026-01-01T08:00:00Z",
+        invoiceDate: "2026-01-01",
+        dcName: "1202 บางบัวทอง",
+        storeName: "120210 หน่วย ลิบ บางบัวทอง",
+      },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+}
+
+test("compareHistory: with no explicit depot, derives it from filters.StoreName's DC code", async () => {
+  const joined = twoResolvableHistoryRows();
+
+  const result = await compareHistory({
+    filters: { StoreName: "120210 หน่วย ลิบ บางบัวทอง" },
+    deps: { repositories: fakeRepos(joined), router: fakeRouter },
+  });
+
+  assert.ok(result.customers, `expected a comparison, got ${JSON.stringify(result)}`);
+  // DC 1202 บางบัวทอง's coordinates.
+  assert.equal(Math.round(result.depot.lat * 1e6), Math.round(13.929295 * 1e6));
+  assert.equal(Math.round(result.depot.lng * 1e6), Math.round(100.433144 * 1e6));
+});
+
+test("compareHistory: with no explicit depot and no StoreName, falls back to filters.DC_Name's DC code", async () => {
+  // Rows carry a matching dcName (so the DC_Name filter actually selects them)
+  // but no storeName, so the depot can only be derived via the DC_Name path.
+  const joined = [
+    {
+      history: {
+        customerCode: "C1",
+        customerName: "Shop 1",
+        timeVisit: "2026-01-01T09:00:00Z",
+        invoiceDate: "2026-01-01",
+        dcName: "1103 พระยาสุเรนทร์",
+      },
+      shop: { location: { lat: 13.72, lng: 100.53 }, coordSource: "master" },
+    },
+    {
+      history: {
+        customerCode: "C2",
+        customerName: "Shop 2",
+        timeVisit: "2026-01-01T08:00:00Z",
+        invoiceDate: "2026-01-01",
+        dcName: "1103 พระยาสุเรนทร์",
+      },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+
+  const result = await compareHistory({
+    filters: { DC_Name: "1103 พระยาสุเรนทร์" },
+    deps: { repositories: fakeRepos(joined), router: fakeRouter },
+  });
+
+  assert.ok(result.customers, `expected a comparison, got ${JSON.stringify(result)}`);
+  // DC 1103 พระยาสุเรนทร์'s coordinates.
+  assert.equal(Math.round(result.depot.lat * 1e6), Math.round(13.82031 * 1e6));
+  assert.equal(Math.round(result.depot.lng * 1e6), Math.round(100.6999429 * 1e6));
+});
+
+test("compareHistory: an explicit depot always wins over a filter-derived one", async () => {
+  const joined = twoResolvableHistoryRows();
+  const explicitDepot = { lat: 1, lng: 1 };
+
+  const result = await compareHistory({
+    depot: explicitDepot,
+    filters: { StoreName: "120210 หน่วย ลิบ บางบัวทอง" },
+    deps: { repositories: fakeRepos(joined), router: fakeRouter },
+  });
+
+  assert.ok(result.customers);
+  assert.deepEqual(result.depot, explicitDepot);
+});
+
+test("compareHistory: falls back to the sample depot when no depot is given and no filter resolves a DC", async () => {
+  const joined = twoResolvableHistoryRows();
+
+  const result = await compareHistory({
+    filters: {}, // no StoreName / DC_Name criterion at all
+    deps: { repositories: fakeRepos(joined), router: fakeRouter },
+  });
+
+  assert.ok(result.customers);
+  // Matches src/data/sampleData.js's depot (the module-level DEFAULT_DEPOT).
+  assert.deepEqual(result.depot, { lat: 13.7563, lng: 100.5018 });
 });

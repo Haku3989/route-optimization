@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Admin portal (`public/admin.html`) no longer appears stuck on the sign-in
+  screen after a successful login. `.auth-shell`'s `display: flex` tied in CSS
+  specificity with the browser's default `[hidden] { display: none }` rule, so
+  toggling `loginView.hidden` had no visual effect and the login card stayed
+  on screen over the console view. Added `.auth-shell[hidden] { display: none; }`
+  in `public/styles.css` to force it to hide, matching the existing
+  `.filter-bar[hidden]` pattern.
+
 ## [1.2.1] - 2026-07-17
 
 ### Fixed

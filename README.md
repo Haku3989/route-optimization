@@ -208,6 +208,18 @@ If `ROUTING_PROVIDER=longdo` is set but `LONGDO_API_KEY` is missing, the
 service logs a warning and falls back to the estimator. Optional overrides:
 `LONGDO_ROUTE_MODE` (default `t`, fastest with traffic) and `LONGDO_BASE_URL`.
 
+To avoid exporting these every session, create a `.env` file in the project
+root (already covered by `.gitignore` — never commit it):
+
+```
+LONGDO_API_KEY=your_key
+ROUTING_PROVIDER=longdo
+```
+
+`npm start`, `npm run dev`, and `npm run db:seed*` load it automatically via
+Node's built-in `--env-file-if-exists` (Node 20.12+/22.9+). `npm test` does
+NOT load it, so the test suite stays key-free and network-free.
+
 ## Notes and limitations
 
 - The optimizer is a heuristic (VRP is NP-hard); it favors speed over exact

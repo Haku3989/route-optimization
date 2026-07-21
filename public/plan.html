@@ -16,7 +16,10 @@
           <p>Upload workbooks · compare history · plan the presale route</p>
         </div>
       </div>
-      <a class="btn secondary" href="index.html">← Dashboard</a>
+      <div class="topbar-actions">
+        <a class="btn secondary" href="index.html">← Dashboard</a>
+        <a class="btn secondary" href="admin.html">Admin</a>
+      </div>
     </header>
 
     <main class="plan-layout">
@@ -66,11 +69,11 @@
         </p>
 
         <form id="historyForm" class="grid-filters">
-          <label>DC_Name<input type="text" name="DC_Name" /></label>
-          <label>StoreName<input type="text" name="StoreName" /></label>
-          <label>StoreGroup<input type="text" name="StoreGroup" /></label>
-          <label>Store Area<input type="text" name="Store Area" /></label>
-          <label>CustomerType<input type="text" name="CustomerType" /></label>
+          <label>DC_Name<select name="DC_Name"><option value="">(any)</option></select></label>
+          <label>StoreName<select name="StoreName"><option value="">(any)</option></select></label>
+          <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
+          <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
+          <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
           <label>Delivery date from<input type="date" name="deliveryDateFrom" /></label>
           <label>Delivery date to<input type="date" name="deliveryDateTo" /></label>
           <button id="historyBtn" type="submit" class="btn">Compare</button>
@@ -87,12 +90,12 @@
         </p>
 
         <form id="presaleForm" class="grid-filters">
-          <label>DC_Name<input type="text" name="DC_Name" /></label>
-          <label>StoreName<input type="text" name="StoreName" /></label>
+          <label>DC_Name<select name="DC_Name"><option value="">(any)</option></select></label>
+          <label>StoreName<select name="StoreName"><option value="">(any)</option></select></label>
           <label>DELIVERY_DATE<input type="date" name="DELIVERY_DATE" /></label>
-          <label>StoreGroup<input type="text" name="StoreGroup" /></label>
-          <label>Store Area<input type="text" name="Store Area" /></label>
-          <label>CustomerType<input type="text" name="CustomerType" /></label>
+          <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
+          <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
+          <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
           <button id="presaleBtn" type="submit" class="btn">Plan route</button>
         </form>
 

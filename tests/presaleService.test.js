@@ -362,6 +362,162 @@ test("Property 14: presale filtering is sound and empty-filter is identity", () 
 // Example test (task 11.7) — Validates: Requirement 6.3
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Fleet resolution — routes are labelled with the store assigned to a driver
+// (drivers.route_id via the admin console) instead of the sample fleet's
+// generic truck ids, when the caller does not supply `vehicles` explicitly.
+// ---------------------------------------------------------------------------
+
+/** Joined presale rows for two resolvable customers (reused by the fleet tests). */
+function twoResolvableCustomers() {
+  return [
+    {
+      presale: { id: "C1", customerCode: "C1", customerName: "Shop 1", deliveryDate: "2026-02-01", demand: 10 },
+      shop: { location: { lat: 13.72, lng: 100.53 }, coordSource: "master" },
+    },
+    {
+      presale: { id: "C2", customerCode: "C2", customerName: "Shop 2", deliveryDate: "2026-02-01", demand: 12 },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+}
+
+test("buildPresalePlan: builds one vehicle per distinct driver-assigned store when vehicles is omitted", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    // Three drivers, two distinct stores (one store has two drivers) plus one
+    // driver with no store assigned yet (routeId: null) — must not add a vehicle.
+    listDrivers: async () => [
+      { id: 1, username: "d1", routeId: "SALES-01" },
+      { id: 2, username: "d2", routeId: "SALES-02" },
+      { id: 3, username: "d3", routeId: "SALES-01" },
+      { id: 4, username: "d4", routeId: null },
+    ],
+  };
+
+  const result = await buildPresalePlan({ deps: { repositories: repos } });
+
+  assert.ok(result.plan, `expected a plan, got ${JSON.stringify(result)}`);
+  const vehicleIds = result.plan.routes.map((r) => r.vehicleId).sort();
+  assert.deepEqual(vehicleIds, ["SALES-01", "SALES-02"]);
+  // Every routed stop belongs to one of the real stores, never a sample truck id.
+  for (const route of result.plan.routes) {
+    assert.ok(!/^TRK-|^VAN-|^EV-/.test(route.vehicleId), `unexpected sample fleet id: ${route.vehicleId}`);
+  }
+});
+
+test("buildPresalePlan: falls back to the sample fleet when no driver has a store assigned", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    listDrivers: async () => [{ id: 1, username: "d1", routeId: null }],
+  };
+
+  const result = await buildPresalePlan({ deps: { repositories: repos } });
+
+  assert.ok(result.plan);
+  const vehicleIds = result.plan.routes.map((r) => r.vehicleId);
+  assert.ok(vehicleIds.every((id) => /^TRK-|^VAN-|^EV-/.test(id)), `expected sample fleet ids, got ${vehicleIds}`);
+});
+
+test("buildPresalePlan: an explicit vehicles list overrides store-based fleet resolution", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    listDrivers: async () => [{ id: 1, username: "d1", routeId: "SALES-01" }],
+  };
+
+  const result = await buildPresalePlan({
+    vehicles: [{ id: "CUSTOM-1", capacity: 100, fuelType: "diesel", speedKmh: 35 }],
+    deps: { repositories: repos },
+  });
+
+  assert.ok(result.plan);
+  assert.deepEqual(result.plan.routes.map((r) => r.vehicleId), ["CUSTOM-1"]);
+});
+
+test("buildPresalePlan: falls back to the sample fleet when the repository has no listDrivers", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = fakeRepos(joined); // exposes only joinPresale, mirroring the other tests
+
+  const result = await buildPresalePlan({ deps: { repositories: repos } });
+
+  assert.ok(result.plan);
+  const vehicleIds = result.plan.routes.map((r) => r.vehicleId);
+  assert.ok(vehicleIds.every((id) => /^TRK-|^VAN-|^EV-/.test(id)), `expected sample fleet ids, got ${vehicleIds}`);
+});
+
+// ---------------------------------------------------------------------------
+// Fleet depot resolution — each store-vehicle's route starts/ends at ITS OWN
+// DC (resolved from the store name's leading 4-digit code), not the plan-level
+// depot. Uses real DC codes from data/dcList.js (1202 บางบัวทอง, 1103 พระยาสุเรนทร์).
+// ---------------------------------------------------------------------------
+
+test("buildPresalePlan: a store-vehicle's route starts/ends at its own resolved DC, not the plan depot", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    listDrivers: async () => [{ id: 1, username: "d1", routeId: "120210 หน่วย ลิบ บางบัวทอง" }],
+  };
+  const planDepot = { lat: 0, lng: 0 }; // deliberately far away / distinguishable
+
+  const result = await buildPresalePlan({
+    depot: planDepot,
+    deps: { repositories: repos },
+  });
+
+  assert.ok(result.plan, `expected a plan, got ${JSON.stringify(result)}`);
+  assert.equal(result.plan.routes.length, 1);
+  const route = result.plan.routes[0];
+  assert.equal(route.vehicleId, "120210 หน่วย ลิบ บางบัวทอง");
+  // DC 1202 บางบัวทอง's coordinates, not the plan-level depot.
+  assert.ok(route.depot);
+  assert.equal(Math.round(route.depot.lat * 1e6), Math.round(13.929295 * 1e6));
+  assert.equal(Math.round(route.depot.lng * 1e6), Math.round(100.433144 * 1e6));
+  assert.notDeepEqual(route.depot, planDepot);
+});
+
+test("buildPresalePlan: falls back to the plan depot when a store's DC code does not resolve", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    listDrivers: async () => [{ id: 1, username: "d1", routeId: "9999-unknown-store" }],
+  };
+  const planDepot = { lat: 5, lng: 5 };
+
+  const result = await buildPresalePlan({
+    depot: planDepot,
+    deps: { repositories: repos },
+  });
+
+  assert.ok(result.plan);
+  assert.deepEqual(result.plan.routes[0].depot, planDepot);
+});
+
+test("buildPresalePlan: two stores in different DCs each start/end at their own DC", async () => {
+  const joined = twoResolvableCustomers();
+  const repos = {
+    joinPresale: async () => joined,
+    listDrivers: async () => [
+      { id: 1, username: "d1", routeId: "1202 บางบัวทอง" },
+      { id: 2, username: "d2", routeId: "1103 พระยาสุเรนทร์" },
+    ],
+  };
+
+  const result = await buildPresalePlan({
+    depot: { lat: 0, lng: 0 },
+    deps: { repositories: repos },
+  });
+
+  assert.ok(result.plan);
+  const depotByVehicle = new Map(result.plan.routes.map((r) => [r.vehicleId, r.depot]));
+  const dcA = depotByVehicle.get("1202 บางบัวทอง");
+  const dcB = depotByVehicle.get("1103 พระยาสุเรนทร์");
+  assert.ok(dcA && dcB);
+  assert.notDeepEqual(dcA, dcB); // each store's own DC, not a shared depot
+});
+
 test("buildPresalePlan: a filter matching no customers returns the no-match message (Req 6.3)", async () => {
   const joined = [
     {

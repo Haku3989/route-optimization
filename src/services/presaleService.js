@@ -24,19 +24,21 @@
  *
  * The Presale filter accepts `DC_Name`, `StoreName`, `DELIVERY_DATE`,
  * `StoreGroup`, `Store Area`, and `CustomerType`. Per the design these may be
- * drawn from the Presale row OR the joined Shop_Master/History data. In this
- * project the joined shop record only carries coordinates / service time /
- * working time (it does NOT carry DC/store/group/area/type), and only
- * `DELIVERY_DATE` lives on the presale row (`deliveryDate`). Therefore:
+ * drawn from the Presale row OR the joined Shop_Master data. The Presale
+ * workbook can carry `DC_Name` / `StoreName` / `StoreGroup` / `Store Area` /
+ * `CustomerType` as OPTIONAL columns (same names as the History workbook —
+ * see `ingestion/mappers.mapPresaleRows`); the joined `shop` record still only
+ * ever carries coordinates / service time / working time. Therefore:
  *   - `DELIVERY_DATE` is matched against `presale.deliveryDate` (a supplied
  *     date criterion excludes a row that has no delivery date, mirroring the
  *     history date-range filter).
- *   - Each shop-derived dimension (`DC_Name`, `StoreName`, `StoreGroup`,
+ *   - Each categorical dimension (`DC_Name`, `StoreName`, `StoreGroup`,
  *     `Store Area`, `CustomerType`) is matched against whatever field exists on
- *     the joined item (checked on `presale` first, then `shop`). A supplied
- *     criterion excludes a row ONLY when that field is present on the row and
- *     differs; when the field is absent from the row, that dimension is ignored
- *     for that row (it cannot exclude data the join does not carry).
+ *     the joined item (checked on `presale` first, then `shop`, via
+ *     `lookupField`). A supplied criterion excludes a row ONLY when that field
+ *     is present on the row and differs; when the field is absent from the row
+ *     (e.g. an older presale upload without these columns), that dimension is
+ *     ignored for that row rather than excluding it.
  *   - An absent/empty criterion matches everything, so empty (or omitted)
  *     `filters` is the identity (Requirement 6.2).
  *
@@ -49,13 +51,79 @@
 
 import { planDeliveries } from "./routeService.js";
 import { depot as sampleDepot, vehicles as sampleVehicles } from "../data/sampleData.js";
+import { resolveDcByName } from "../data/dcList.js";
 import * as realRepositories from "../db/repositories.js";
 
 /** Default depot reused from the existing sample scenario (Bangkok DC). */
 const DEFAULT_DEPOT = { lat: sampleDepot.lat, lng: sampleDepot.lng };
 
-/** Default fleet reused from the sample scenario when none is supplied. */
+/** Default fleet reused from the sample scenario when none is supplied AND no
+ * store-assigned drivers exist yet (see {@link resolveFleet}). */
 const DEFAULT_VEHICLES = sampleVehicles.map((v) => ({ ...v }));
+
+/** Per-vehicle attributes used when the fleet is built from store-assigned
+ * drivers — this prototype does not track capacity/fuel/speed per driver. */
+const FLEET_DEFAULT_CAPACITY = 110;
+const FLEET_DEFAULT_FUEL_TYPE = "diesel";
+const FLEET_DEFAULT_SPEED_KMH = 35;
+
+/**
+ * Build the vehicle fleet for a presale plan from the store assigned to each
+ * driver in the admin "User Setup" console (`drivers.route_id`, populated from
+ * the StoreName dropdown), so routes are labelled with a real store (e.g.
+ * "SALES-01") instead of the sample fleet's generic truck ids (TRK-01, TRK-02).
+ *
+ * One vehicle is created per DISTINCT non-empty store name across all drivers
+ * (a store with several drivers still gets exactly one route). Each vehicle's
+ * `depot` is resolved from its store name's leading 4-digit DC code (see
+ * `data/dcList.js`), so that store's route starts and ends at ITS OWN DC
+ * rather than the single plan-level depot; when a store's code does not match
+ * any known DC, `depot` is left unset and the vehicle falls back to the
+ * plan-level depot (see `solveCVRP`).
+ *
+ * Falls back entirely to {@link DEFAULT_VEHICLES} when no drivers have a store
+ * assigned yet, or when the repository has no `listDrivers` (e.g. a minimal
+ * test fake) or the lookup fails — so an unrelated DB hiccup never blocks
+ * planning.
+ *
+ * @param {{ listDrivers?: () => Promise<Array<{ routeId: string|null }>> }} repositories
+ * @returns {Promise<Array<{ id:string, capacity:number, fuelType:string,
+ *   speedKmh:number, depot?:{lat:number,lng:number} }>>}
+ */
+async function resolveFleet(repositories) {
+  if (typeof repositories.listDrivers !== "function") {
+    return DEFAULT_VEHICLES;
+  }
+  try {
+    const drivers = await repositories.listDrivers();
+    const stores = [
+      ...new Set(
+        (Array.isArray(drivers) ? drivers : [])
+          .map((d) => (typeof d.routeId === "string" ? d.routeId.trim() : ""))
+          .filter((store) => store !== "")
+      ),
+    ].sort();
+
+    if (stores.length === 0) {
+      return DEFAULT_VEHICLES;
+    }
+    return stores.map((store) => {
+      const dc = resolveDcByName(store);
+      return {
+        id: store,
+        capacity: FLEET_DEFAULT_CAPACITY,
+        fuelType: FLEET_DEFAULT_FUEL_TYPE,
+        speedKmh: FLEET_DEFAULT_SPEED_KMH,
+        // `code`/`name` are additive (beyond the {lat,lng} the optimizer needs)
+        // so the UI can show which DC a route belongs to, not just coordinates.
+        depot: dc ? { lat: dc.lat, lng: dc.lng, code: dc.code, name: dc.name } : undefined,
+      };
+    });
+  } catch {
+    // A driver-lookup failure should not block presale planning — fall back.
+    return DEFAULT_VEHICLES;
+  }
+}
 
 /**
  * Message returned (not thrown) when the applied filter matches no customers
@@ -195,7 +263,9 @@ function isWindowViolation(etaDate, openTime, closeTime) {
  * @param {object} [input]
  * @param {object} [input.filters]   presale filter criteria (Requirement 6)
  * @param {{lat:number,lng:number}} [input.depot]    defaults to the sample depot
- * @param {Array} [input.vehicles]   defaults to the sample fleet
+ * @param {Array} [input.vehicles]   when omitted, one vehicle is built per
+ *   distinct store assigned to a driver in the admin console (see
+ *   {@link resolveFleet}); falls back to the sample fleet when none exist
  * @param {Date} [input.departAt]
  * @param {{ repositories?: object, router?: object }} [input.deps]
  *   Injectable dependencies; default to the real repository module and the
@@ -209,7 +279,7 @@ function isWindowViolation(etaDate, openTime, closeTime) {
 export async function buildPresalePlan({
   filters = {},
   depot = DEFAULT_DEPOT,
-  vehicles = DEFAULT_VEHICLES,
+  vehicles,
   departAt = new Date(),
   deps = {},
 } = {}) {
@@ -222,6 +292,11 @@ export async function buildPresalePlan({
   if (filtered.length === 0) {
     return { message: PRESALE_MESSAGES.NO_CUSTOMERS_MATCHED };
   }
+
+  // Build the fleet from store-assigned drivers when the caller did not supply
+  // one explicitly (the planner UI never does), so routes are labelled with a
+  // real store instead of the sample fleet's generic truck ids.
+  const fleet = vehicles ?? (await resolveFleet(repositories));
 
   // Split into routable orders (resolvable coordinates) vs unassigned customers
   // (Requirement 5.1, 5.5). A customer is unassigned when it has no matching
@@ -261,7 +336,7 @@ export async function buildPresalePlan({
   // routes. `router` defaults to the network-free estimator inside planDeliveries.
   const plan = await planDeliveries({
     depot,
-    vehicles,
+    vehicles: fleet,
     orders,
     departAt,
     router: deps.router,

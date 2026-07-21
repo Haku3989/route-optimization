@@ -15,9 +15,11 @@
  *
  * The API response shapes mirrored here come from (do NOT change the backend):
  *   - POST /api/history/compare -> historyService.compareHistory
- *       { customers:[{customerCode, customer, historicalSeq, optimizedSeq,
- *         historicalEta, optimizedEta}], historicalDistanceKm,
- *         optimizedDistanceKm } | { message }
+ *       { depot:{lat,lng},
+ *         customers:[{customerCode, customer, location:{lat,lng}|null,
+ *         historicalSeq, optimizedSeq, historicalEta, optimizedEta}],
+ *         historicalDistanceKm, optimizedDistanceKm,
+ *         historicalCo2Kg, optimizedCo2Kg } | { message }
  *   - POST /api/presale/plan -> presaleService.buildPresalePlan
  *       { plan, unassigned:[{customerCode, customer, reason}],
  *         windowViolations:[{customerCode, eta, openTime, closeTime}] }
@@ -45,6 +47,20 @@ function round(n) {
 function isEmpty(value) {
   if (value === undefined || value === null) return true;
   return String(value).trim() === "";
+}
+
+/**
+ * True when `value` is a `{ lat, lng }` object with finite numeric coordinates.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isLatLng(value) {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Number.isFinite(value.lat) &&
+    Number.isFinite(value.lng)
+  );
 }
 
 /**
@@ -89,21 +105,34 @@ export function fmtEta(iso) {
  * savedKm  = historicalDistanceKm - optimizedDistanceKm
  * savedPct = historicalDistanceKm === 0 ? 0 : savedKm / historicalDistanceKm * 100
  *
+ * co2SavedKg = historicalCo2Kg - optimizedCo2Kg
+ *
+ * The `depot`, per-row `location`, and CO2 fields are additive: they carry the
+ * geo + emissions data the dashboard map/metric cards need, and default safely
+ * (null depot, null location, 0 CO2) when a caller — like the planner table —
+ * ignores them.
+ *
  * @param {object} result the parsed JSON body from /api/history/compare
  * @returns {{ isMessage: boolean, message?: string,
- *   rows: Array<object>, historicalDistanceKm: number,
- *   optimizedDistanceKm: number, savedKm: number, savedPct: number }}
+ *   depot: {lat:number,lng:number}|null, rows: Array<object>,
+ *   historicalDistanceKm: number, optimizedDistanceKm: number,
+ *   savedKm: number, savedPct: number,
+ *   historicalCo2Kg: number, optimizedCo2Kg: number, co2SavedKg: number }}
  */
 export function summarizeComparison(result) {
   if (!result || typeof result !== "object" || typeof result.message === "string") {
     return {
       isMessage: true,
       message: result && result.message ? result.message : "No result.",
+      depot: null,
       rows: [],
       historicalDistanceKm: 0,
       optimizedDistanceKm: 0,
       savedKm: 0,
       savedPct: 0,
+      historicalCo2Kg: 0,
+      optimizedCo2Kg: 0,
+      co2SavedKg: 0,
     };
   }
 
@@ -115,10 +144,17 @@ export function summarizeComparison(result) {
       ? 0
       : round(((historicalDistanceKm - optimizedDistanceKm) / historicalDistanceKm) * 100);
 
+  const historicalCo2Kg = Number(result.historicalCo2Kg) || 0;
+  const optimizedCo2Kg = Number(result.optimizedCo2Kg) || 0;
+  const co2SavedKg = round(historicalCo2Kg - optimizedCo2Kg);
+
+  const depot = isLatLng(result.depot) ? { lat: result.depot.lat, lng: result.depot.lng } : null;
+
   const rows = Array.isArray(result.customers)
     ? result.customers.map((c) => ({
         customerCode: c.customerCode ?? null,
         customer: c.customer ?? null,
+        location: isLatLng(c.location) ? { lat: c.location.lat, lng: c.location.lng } : null,
         historicalSeq: c.historicalSeq ?? null,
         optimizedSeq: c.optimizedSeq ?? null,
         historicalEta: c.historicalEta ?? null,
@@ -128,11 +164,15 @@ export function summarizeComparison(result) {
 
   return {
     isMessage: false,
+    depot,
     rows,
     historicalDistanceKm: round(historicalDistanceKm),
     optimizedDistanceKm: round(optimizedDistanceKm),
     savedKm,
     savedPct,
+    historicalCo2Kg: round(historicalCo2Kg),
+    optimizedCo2Kg: round(optimizedCo2Kg),
+    co2SavedKg,
   };
 }
 
@@ -143,11 +183,16 @@ export function summarizeComparison(result) {
  * with its owning vehicle) so the DOM layer can render per-route or as a flat
  * list without further traversal.
  *
+ * The per-route `depot` is additive: it reports the DC (start/end point) that
+ * route's vehicle actually used — a store's own DC when its StoreName resolves
+ * to one (see `data/dcList.js`), otherwise the plan-level depot. `null` when
+ * the route carries no depot (older responses).
+ *
  * @param {object} result the parsed JSON body from /api/presale/plan
  * @returns {{ isMessage: boolean, message?: string,
  *   routes: Array<{ vehicleId: (string|null), fuelType: (string|null),
  *     distanceKm: number, co2Kg: number, load: (number|null),
- *     capacity: (number|null),
+ *     capacity: (number|null), depot: ({lat:number,lng:number}|null),
  *     stops: Array<{ sequence:(number|null), customer:(string|null),
  *       customerCode:(string|null), eta:(string|null), demand:(number|null) }> }>,
  *   stops: Array<object>,
@@ -179,6 +224,14 @@ export function summarizePlan(result) {
       co2Kg: Number(route.co2Kg) || 0,
       load: route.load ?? null,
       capacity: route.capacity ?? null,
+      depot: isLatLng(route.depot)
+        ? {
+            lat: route.depot.lat,
+            lng: route.depot.lng,
+            code: route.depot.code ?? null,
+            name: route.depot.name ?? null,
+          }
+        : null,
       stops: route.stops.map((stop) => ({
         sequence: stop.sequence ?? null,
         customer: stop.customer ?? null,

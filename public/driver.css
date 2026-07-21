@@ -2,19 +2,38 @@
  *
  * Single-column layout, a max-width container so it stays readable on larger
  * screens, and large tap targets (min 44px) for use on a phone in the field.
+ *
+ * This page loads ONLY driver.css (not styles.css), so it carries its own copy
+ * of the Farmhouse palette + glassmorphism tokens and warm gradient backdrop.
  */
 
 :root {
-  --bg: #0f1720;
-  --panel: #172230;
-  --panel-2: #1f2f42;
-  --text: #e6edf3;
-  --muted: #8ba1b6;
-  --accent: #ffb703;
-  --green: #2dd4a7;
-  --danger: #f87171;
-  --border: #26384d;
-  --current: #3b5772;
+  /* Farmhouse palette */
+  --cream: #fdf7ec;
+  --wheat: #f4e6c9;
+  --barn: #c23a24;
+  --barn-dark: #a52f1c;
+  --gold: #e2a13a;
+  --sage: #5f8f57;
+  --danger: #c0392b;
+
+  --text: #3a2b21;
+  --muted: #7c6a58;
+
+  /* Glass surfaces */
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-strong: rgba(255, 255, 255, 0.64);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 10px 30px rgba(97, 58, 30, 0.18);
+  --blur: saturate(160%) blur(14px);
+
+  /* Back-compat aliases */
+  --panel: var(--glass);
+  --panel-2: var(--glass-strong);
+  --accent: var(--barn);
+  --green: var(--sage);
+  --border: var(--glass-border);
+  --current: rgba(226, 161, 58, 0.22); /* gold-tinted current-stop highlight */
 }
 
 * {
@@ -29,9 +48,15 @@ body {
 
 body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--bg);
   color: var(--text);
   -webkit-text-size-adjust: 100%;
+  min-height: 100vh;
+  background:
+    radial-gradient(700px 460px at 8% -6%, rgba(226, 122, 58, 0.5), transparent 60%),
+    radial-gradient(720px 520px at 112% 108%, rgba(226, 161, 58, 0.45), transparent 55%),
+    radial-gradient(520px 420px at 92% 2%, rgba(194, 58, 36, 0.28), transparent 60%),
+    linear-gradient(160deg, #fdf3e0 0%, #f4e3c2 46%, #efd9b5 100%);
+  background-attachment: fixed;
 }
 
 /* Mobile-first container: full width on a phone, capped and centred on wider
@@ -58,28 +83,33 @@ body {
 }
 
 .brand .dot {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(255, 183, 3, 0.2);
+  background: var(--barn);
+  box-shadow: 0 0 0 4px rgba(226, 161, 58, 0.35);
 }
 
 .brand h1 {
   font-size: 18px;
   margin: 0;
+  color: var(--text);
 }
 
 .card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
   padding: 18px 16px;
+  box-shadow: var(--glass-shadow);
 }
 
 .card h2 {
   margin: 0 0 14px;
   font-size: 18px;
+  color: var(--text);
 }
 
 form {
@@ -101,13 +131,13 @@ input {
   font-size: 16px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
   color: var(--text);
 }
 
 input:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--barn);
   outline-offset: 1px;
 }
 
@@ -115,24 +145,33 @@ input:focus {
   margin-top: 18px;
   min-height: 52px;
   width: 100%;
-  background: var(--accent);
-  color: #1a1200;
+  background: var(--barn);
+  color: #fff;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 6px 16px rgba(194, 58, 36, 0.3);
+}
+
+.btn:hover {
+  background: var(--barn-dark);
 }
 
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
+  box-shadow: none;
 }
 
 .btn.secondary {
-  background: var(--panel-2);
+  background: var(--glass);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: none;
 }
 
 .link-btn {
@@ -158,13 +197,16 @@ input:focus {
 }
 
 .message {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 22px 16px;
   text-align: center;
   color: var(--muted);
   font-size: 15px;
+  box-shadow: var(--glass-shadow);
 }
 
 .stop-list {
@@ -177,17 +219,20 @@ input:focus {
 }
 
 .stop {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 14px;
+  box-shadow: 0 6px 18px rgba(97, 58, 30, 0.12);
 }
 
 /* Highlight the current stop the driver should head to next (Req 8.1). */
 .stop.current {
-  border-color: var(--accent);
+  border-color: var(--gold);
   background: var(--current);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 2px var(--gold), 0 6px 18px rgba(97, 58, 30, 0.16);
 }
 
 .stop.completed {
@@ -204,7 +249,8 @@ input:focus {
   min-width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(194, 58, 36, 0.14);
+  color: var(--barn-dark);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -216,6 +262,7 @@ input:focus {
 .stop .name {
   font-size: 16px;
   font-weight: 600;
+  color: var(--text);
 }
 
 .stop .eta {
@@ -234,7 +281,7 @@ input:focus {
 .maps-link,
 .complete-btn {
   min-height: 48px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 15px;
   font-weight: 600;
   display: inline-flex;
@@ -247,9 +294,9 @@ input:focus {
 }
 
 .maps-link {
-  background: var(--panel-2);
-  color: var(--green);
-  border: 1px solid var(--border);
+  background: var(--glass-strong);
+  color: var(--barn-dark);
+  border: 1px solid var(--glass-border);
 }
 
 .nav-fallback {
@@ -259,8 +306,8 @@ input:focus {
 }
 
 .complete-btn {
-  background: var(--green);
-  color: #04231a;
+  background: var(--sage);
+  color: #fff;
   border: none;
 }
 
@@ -269,5 +316,50 @@ input:focus {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--green);
+  color: var(--sage);
+  font-weight: 700;
+}
+
+/* Cross-link from the driver login to the admin portal. */
+.auth-foot {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.auth-foot a {
+  color: var(--barn-dark);
+  font-weight: 600;
+}
+
+/* Top-of-page progress bar (shared with the other pages). */
+.top-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 3000;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.top-progress.run {
+  opacity: 1;
+}
+
+.top-progress__fill {
+  height: 100%;
+  width: 0;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, var(--barn), var(--gold));
+  box-shadow: 0 0 10px rgba(226, 161, 58, 0.65);
+  transition: width 0.25s ease;
+}
+
+.top-progress.err .top-progress__fill {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(192, 57, 43, 0.6);
 }
