@@ -175,9 +175,9 @@ export function mapHistoryRows(rows, warnings = []) {
     getId: (row) => text(row["Customer_Code"]),
     // TIME_VISIT is optional: keep the row but flag it, since it has no
     // position in the historical order (the comparison sorts it last).
-    softWarn: (row) =>
+     softWarn: (row) =>
       isBlank(row["TIME_VISIT"])
-        ? "Missing TIME_VISIT — kept, ordered last in history comparison"
+        ? "ร้านค้าไม่มีเวลาลงบิล — ข้อมูลนำเข้าสำเร็จตามปกติ"
         : null,
     toRecord: (row) => ({
       customerCode: String(row["Customer_Code"]).trim(),
