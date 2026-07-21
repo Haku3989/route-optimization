@@ -178,7 +178,7 @@ export function mapHistoryRows(rows, warnings = []) {
      softWarn: (row) =>
       isBlank(row["TIME_VISIT"])
         ? "ร้านค้าไม่มีเวลาลงบิล — ข้อมูลนำเข้าสำเร็จตามปกติ"
-        : null,
+        : null,  
     toRecord: (row) => ({
       customerCode: String(row["Customer_Code"]).trim(),
       customerName: text(row["Customer_Name"]),

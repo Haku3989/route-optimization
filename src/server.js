@@ -9,8 +9,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import apiRouter from "./routes/api.js";
 import { assertConnectivity, initSchema } from "./db/pool.js";
-import { findAdminByUsername } from "./db/repositories.js";
-import { createUser } from "./services/userService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -68,26 +66,6 @@ async function bootstrapDatabase() {
   await initSchema(); // CREATE ... IF NOT EXISTS — safe to run on every boot
 }
 
-/**
- * Ensure the default admin account exists. Safe to run on every boot — if the
- * admin already exists, this is a no-op. Uses the real hashPassword via
- * userService.createUser, so the stored hash always matches what login
- * verifies (never insert a hash generated any other way).
- */
-async function ensureDefaultAdmin() {
-  const username = "admin";
-  const password = "AdminFH2026!";
-
-  const existing = await findAdminByUsername(username);
-  if (existing) {
-    console.log(`[bootstrap] admin "${username}" already exists — skipping seed`);
-    return;
-  }
-
-  await createUser({ role: "admin", username, password });
-  console.log(`[bootstrap] created default admin "${username}"`);
-}
-
 // Only bootstrap the DB and start listening when this file is run directly
 // (`node src/server.js`), not when it is imported (e.g. by integration tests
 // that mount `app` themselves).
@@ -96,7 +74,6 @@ const isMainModule =
 
 if (isMainModule) {
   bootstrapDatabase()
-    .then(() => ensureDefaultAdmin())
     .then(() => startServer(Number(PORT)))
     .catch((err) => {
       console.error("[startup] database bootstrap failed:", err.message || err);
