@@ -28,6 +28,7 @@ import { solveCVRP, routeDistanceKm } from "../optimizer/vrp.js";
 import { co2ForDistance } from "../optimizer/emissions.js";
 import { etasFromLegs } from "./etaService.js";
 import { createRouter } from "../routing/router.js";
+import { createGeocoder } from "../routing/geocoder.js";
 import { depot as sampleDepot } from "../data/sampleData.js";
 import { resolveDcByName } from "../data/dcList.js";
 import * as realRepositories from "../db/repositories.js";
@@ -59,7 +60,8 @@ export const HISTORY_MESSAGES = {
   NO_ROUTABLE_CUSTOMERS:
     "no routable customers — the matched history rows have no resolvable " +
     "shop coordinates (upload a Shop_Master workbook with matching " +
-    "Customer_Code rows, or check that their lat/long resolved)",
+    "Customer_Code rows, check that their lat/long resolved, or that the " +
+    "store/customer name could be geocoded)",
 };
 
 /**
@@ -208,24 +210,80 @@ export function applyHistoryFilters(joined, filters) {
 }
 
 /**
- * Reduce filtered records to the DISTINCT customers that can actually be routed
- * (those whose joined Shop_Master row resolved to coordinates), keyed by
- * `customerCode`, keeping the EARLIEST `timeVisit` per customer as the ordering
- * key. The returned list is sorted ascending by that earliest `timeVisit`, so
- * it is the historical visit order (Requirement 3.1).
+ * Build the best available query string to geocode a history row's own shop:
+ * prefer the specific `storeName`, then `customerName`, then `dcName`. `null`
+ * when the row carries none of them.
+ *
+ * @param {object} history
+ * @returns {string|null}
+ */
+function geocodeQueryFromHistory(history) {
+  const candidates = [history?.storeName, history?.customerName, history?.dcName];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a single history row's location: the joined Shop_Master coordinates
+ * win when present (source "master"); otherwise — e.g. the `Customer_Code`
+ * has no matching Shop_Master row at all, or its coordinates never resolved —
+ * fall back to geocoding the row's own store/customer name (source
+ * "geocoded"), mirroring the same master -> geocode precedence Shop_Master
+ * ingestion uses (`routing/geocoder.js`). `location` is `null` when neither
+ * step resolves.
+ *
+ * @param {object} history
+ * @param {object|null} shop
+ * @param {{ geocode:(q:string)=>Promise<{lat:number,lng:number}|null> }|null} geocoder
+ * @param {Map<string, {lat:number,lng:number}|null>} cache  memoizes repeat
+ *   geocode lookups for the same query within one comparison (the same store
+ *   is typically visited many times across the history rows).
+ * @returns {Promise<{lat:number,lng:number}|null>}
+ */
+async function resolveHistoryLocation(history, shop, geocoder, cache) {
+  if (shop && shop.location) return shop.location;
+  if (!geocoder) return null;
+
+  const query = geocodeQueryFromHistory(history);
+  if (!query) return null;
+
+  if (cache.has(query)) return cache.get(query);
+  const geocoded = await geocoder.geocode(query).catch(() => null);
+  cache.set(query, geocoded ?? null);
+  return geocoded ?? null;
+}
+
+/**
+ * Reduce filtered records to the DISTINCT customers that can actually be
+ * routed, keyed by `customerCode`, keeping the EARLIEST `timeVisit` per
+ * customer as the ordering key. A customer's location comes from the joined
+ * Shop_Master row when present; when the `Customer_Code` is not found in the
+ * master file (or its coordinates never resolved there), it is geocoded from
+ * its own store/customer name instead of being dropped. The returned list is
+ * sorted ascending by that earliest `timeVisit`, so it is the historical
+ * visit order (Requirement 3.1).
  *
  * @param {Array<{ history: object, shop: object|null }>} records
- * @returns {Array<{ customerCode: string, customer: string, timeMs: number,
+ * @param {{ geocode:(q:string)=>Promise<{lat:number,lng:number}|null> }|null} [geocoder]
+ * @returns {Promise<Array<{ customerCode: string, customer: string, timeMs: number,
  *   location: {lat:number,lng:number}, serviceTimeMin: number|null,
- *   openTime: string|null, closeTime: string|null }>}
+ *   openTime: string|null, closeTime: string|null }>>}
  */
-function distinctResolvableCustomers(records) {
+async function distinctResolvableCustomers(records, geocoder = null) {
   const byCode = new Map();
+  const geocodeCache = new Map();
 
   for (const item of records) {
     const history = item && item.history;
+    if (!history) continue;
     const shop = item && item.shop;
-    if (!history || !shop || !shop.location) continue; // not routable
+
+    const location = await resolveHistoryLocation(history, shop, geocoder, geocodeCache);
+    if (!location) continue; // not routable — neither master nor geocoding resolved it
 
     const code = history.customerCode;
     const timeMs = visitOrderKey(history.timeVisit);
@@ -236,10 +294,10 @@ function distinctResolvableCustomers(records) {
         customerCode: code,
         customer: history.customerName ?? null,
         timeMs,
-        location: shop.location,
-        serviceTimeMin: shop.serviceTimeMin ?? null,
-        openTime: shop.openTime ?? null,
-        closeTime: shop.closeTime ?? null,
+        location,
+        serviceTimeMin: shop?.serviceTimeMin ?? null,
+        openTime: shop?.openTime ?? null,
+        closeTime: shop?.closeTime ?? null,
       });
     }
   }
@@ -293,9 +351,11 @@ async function etasByCode(router, depot, stops, departAt, speedKmh) {
  *   when neither is supplied or resolves to a known DC.
  * @param {{id?:string, speedKmh?:number}} [input.vehicle]  notional vehicle
  * @param {Date} [input.departAt]
- * @param {{ repositories?: object, router?: object }} [input.deps]
- *   Injectable dependencies; default to the real repository module and the
- *   configured router. Property tests pass in-memory fakes here.
+ * @param {{ repositories?: object, router?: object, geocoder?: object }} [input.deps]
+ *   Injectable dependencies; default to the real repository module, the
+ *   configured router, and the configured geocoder (used to resolve a
+ *   customer's location when it is not found in Shop_Master). Property tests
+ *   pass in-memory fakes here.
  * @returns {Promise<
  *   { depot:{lat:number,lng:number},
  *     customers: Array<{ customerCode:string, customer:string,
@@ -315,6 +375,7 @@ export async function compareHistory({
 } = {}) {
   const repositories = deps.repositories || realRepositories;
   const router = deps.router || createRouter();
+  const geocoder = deps.geocoder || createGeocoder();
 
   // Resolve the depot: an explicit `depot` wins; otherwise derive it from the
   // filter's StoreName (preferred) or DC_Name — each store's leading 4-digit
@@ -335,7 +396,7 @@ export async function compareHistory({
   }
 
   // Historical order = distinct routable customers, ascending by TIME_VISIT.
-  const historicalCustomers = distinctResolvableCustomers(records);
+  const historicalCustomers = await distinctResolvableCustomers(records, geocoder);
 
   if (historicalCustomers.length === 0) {
     // `records` is non-empty here (the length===0 guard above already handled

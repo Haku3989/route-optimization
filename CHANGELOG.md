@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- History comparison (`compareHistory`) now geocodes a customer's location
+  from their own `StoreName`/`CustomerName`/`DC_Name` when the `Customer_Code`
+  is not found in Shop_Master (or its master coordinates never resolved),
+  instead of silently dropping that customer from the comparison. Reuses the
+  existing `routing/geocoder.js` provider (Longdo when configured, otherwise a
+  no-op estimator), with repeat lookups for the same store memoized per
+  comparison.
+
 ## [1.3.0] - 2026-07-21
 
 ### Added

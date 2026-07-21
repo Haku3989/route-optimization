@@ -421,6 +421,90 @@ test("compareHistory: a filter matching nothing returns 'no records matched' (Re
   assert.deepEqual(result, { message: HISTORY_MESSAGES.NO_RECORDS_MATCHED });
 });
 
+// ---------------------------------------------------------------------------
+// Geocoding fallback (Req 2.1-2.3 reused): a history row whose Customer_Code
+// is not found in Shop_Master (or whose master coordinates never resolved)
+// falls back to geocoding the row's own store/customer name instead of being
+// dropped from the comparison.
+// ---------------------------------------------------------------------------
+
+test("compareHistory: geocodes a customer's location when not found in Shop_Master", async () => {
+  const joined = [
+    {
+      history: {
+        customerCode: "C1",
+        customerName: "Shop 1",
+        storeName: "Shop 1 Branch",
+        timeVisit: "2026-01-01T09:00:00Z",
+        invoiceDate: "2026-01-01",
+      },
+      shop: null, // no matching Shop_Master row
+    },
+    {
+      history: {
+        customerCode: "C2",
+        customerName: "Shop 2",
+        timeVisit: "2026-01-01T08:00:00Z",
+        invoiceDate: "2026-01-01",
+      },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+
+  const geocodeCalls = [];
+  const fakeGeocoder = {
+    async geocode(query) {
+      geocodeCalls.push(query);
+      return { lat: 13.9, lng: 100.6 };
+    },
+  };
+
+  const result = await compareHistory({
+    depot: DEPOT,
+    deps: { repositories: fakeRepos(joined), router: fakeRouter, geocoder: fakeGeocoder },
+  });
+
+  assert.ok(result.customers, `expected a comparison, got ${JSON.stringify(result)}`);
+  assert.equal(result.customers.length, 2);
+  // Geocoded using the row's own storeName (preferred over customerName).
+  assert.deepEqual(geocodeCalls, ["Shop 1 Branch"]);
+  const c1 = result.customers.find((r) => r.customerCode === "C1");
+  assert.ok(c1);
+});
+
+test("compareHistory: still excludes a customer when geocoding also fails to resolve", async () => {
+  const joined = [
+    {
+      history: {
+        customerCode: "C1",
+        customerName: "Shop 1",
+        timeVisit: "2026-01-01T09:00:00Z",
+        invoiceDate: "2026-01-01",
+      },
+      shop: null,
+    },
+    {
+      history: {
+        customerCode: "C2",
+        customerName: "Shop 2",
+        timeVisit: "2026-01-01T08:00:00Z",
+        invoiceDate: "2026-01-01",
+      },
+      shop: { location: { lat: 13.8, lng: 100.55 }, coordSource: "master" },
+    },
+  ];
+
+  const noopGeocoder = { async geocode() { return null; } };
+
+  const result = await compareHistory({
+    depot: DEPOT,
+    deps: { repositories: fakeRepos(joined), router: fakeRouter, geocoder: noopGeocoder },
+  });
+
+  // Only C2 is routable, so the comparison still needs two customers.
+  assert.deepEqual(result, { message: HISTORY_MESSAGES.NEEDS_TWO_CUSTOMERS });
+});
+
 test("compareHistory: two resolvable customers produce a full comparison", async () => {
   const joined = [
     {
