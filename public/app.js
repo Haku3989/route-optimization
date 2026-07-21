@@ -26,6 +26,7 @@ import { summarizeComparison, summarizePlan, fmtEta, buildFilters } from "./plan
 import * as progress from "./progress.js";
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
 import { wireCascadingFilters, populateSelect } from "./filterOptions.js";
+import { countUp } from "./motion.js";
 
 const ROUTE_COLORS = [
   "#ffb703",
@@ -172,7 +173,9 @@ function renderMetricCards(cards) {
   const nodes = cards.map((c) => {
     const card = el("div", "metric-card");
     card.appendChild(el("div", "label", c.label));
-    card.appendChild(el("div", "value", c.value));
+    const value = el("div", "value");
+    card.appendChild(value);
+    countUp(value, c.value);
     if (c.sub) card.appendChild(el("div", "sub", c.sub));
     return card;
   });

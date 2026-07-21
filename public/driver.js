@@ -110,6 +110,7 @@ function categoryBadge(category, deviationMin) {
 function buildStopEl(vm) {
   const li = document.createElement("li");
   li.className = "stop";
+  if (vm.customerCode != null) li.dataset.customerCode = vm.customerCode;
   if (vm.isCurrent) li.classList.add("current");
   if (vm.completed) li.classList.add("completed");
 
@@ -216,6 +217,11 @@ async function onComplete(sequence, customerCode, btn) {
     };
     currentRoute = advanceStop(currentRoute, sequence);
     render(currentRoute);
+    // Pulse ONLY the badge that just appeared (not the whole list) — a single
+    // "something just happened" moment, not scattered motion across every
+    // already-completed stop from a previous session.
+    const justCompletedStop = stopList.querySelector(`[data-customer-code="${CSS.escape(customerCode)}"] .status-badge`);
+    if (justCompletedStop) justCompletedStop.classList.add("pulse-once");
   } catch (_) {
     if (btn) btn.disabled = false;
   }

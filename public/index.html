@@ -8,10 +8,17 @@
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
+    <header class="topbar reveal" style="--i: 0">
       <div class="brand">
         <span class="dot"></span>
         <div>
@@ -39,7 +46,7 @@
       </div>
     </header>
 
-    <form id="historyFilters" class="filter-bar">
+    <form id="historyFilters" class="filter-bar reveal" style="--i: 1">
       <div class="filter-fields">
         <label>DC_Name<select name="DC_Name"><option value="">(any)</option></select></label>
         <label>StoreName<select name="StoreName"><option value="">(any)</option></select></label>
@@ -71,11 +78,11 @@
       </div>
     </form>
 
-    <section class="metrics" id="metrics">
+    <section class="metrics reveal" id="metrics" style="--i: 2">
       <!-- metric cards injected here -->
     </section>
 
-    <main class="layout">
+    <main class="layout reveal" style="--i: 3">
       <div id="map"></div>
       <aside class="sidebar" id="routes">
         <p class="hint">Loading history-based optimization…</p>

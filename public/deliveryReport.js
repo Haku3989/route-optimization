@@ -15,6 +15,7 @@ import { buildFilters, fmtEta } from "./planView.js";
 import { summarizeDeliveryReport } from "./deliveryReportView.js";
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
 import { wireCascadingFilters, populateSelect } from "./filterOptions.js";
+import { countUp } from "./motion.js";
 
 // --- Small safe-DOM helpers -------------------------------------------------
 function el(tag, className, text) {
@@ -69,7 +70,9 @@ function wrapCell(node) {
 function metricCard(label, value, sub) {
   const card = el("div", "metric-card");
   card.appendChild(el("div", "label", label));
-  card.appendChild(el("div", "value", value));
+  const valueEl = el("div", "value");
+  card.appendChild(valueEl);
+  countUp(valueEl, value);
   if (sub) card.appendChild(el("div", "sub", sub));
   return card;
 }

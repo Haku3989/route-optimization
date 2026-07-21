@@ -1,41 +1,16 @@
-/* Farmhouse Driver — mobile-first view (Requirement 8.2).
+/* Hallmark · genre: editorial · macrostructure: none (mobile app page) ·
+ * theme: custom (Farmhouse-anchored) · design-system: design.md ·
+ * designed-as-app
+ *
+ * Farmhouse Driver — mobile-first view (Requirement 8.2).
  *
  * Single-column layout, a max-width container so it stays readable on larger
  * screens, and large tap targets (min 44px) for use on a phone in the field.
  *
- * This page loads ONLY driver.css (not styles.css), so it carries its own copy
- * of the Farmhouse palette + glassmorphism tokens and warm gradient backdrop.
+ * Loads tokens.css (shared with every other page) instead of carrying its
+ * own duplicated palette — see /design.md. Hairline-bordered paper surfaces,
+ * no glassmorphism.
  */
-
-:root {
-  /* Farmhouse palette */
-  --cream: #fdf7ec;
-  --wheat: #f4e6c9;
-  --barn: #c23a24;
-  --barn-dark: #a52f1c;
-  --gold: #e2a13a;
-  --sage: #5f8f57;
-  --danger: #c0392b;
-  --info: #3a7ca5; /* early-delivery blue — distinct from --gold (used for "current stop") */
-
-  --text: #3a2b21;
-  --muted: #7c6a58;
-
-  /* Glass surfaces */
-  --glass: rgba(255, 255, 255, 0.42);
-  --glass-strong: rgba(255, 255, 255, 0.64);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 10px 30px rgba(97, 58, 30, 0.18);
-  --blur: saturate(160%) blur(14px);
-
-  /* Back-compat aliases */
-  --panel: var(--glass);
-  --panel-2: var(--glass-strong);
-  --accent: var(--barn);
-  --green: var(--sage);
-  --border: var(--glass-border);
-  --current: rgba(226, 161, 58, 0.22); /* gold-tinted current-stop highlight */
-}
 
 * {
   box-sizing: border-box;
@@ -48,16 +23,11 @@ body {
 }
 
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  color: var(--text);
+  font-family: var(--font-body);
+  color: var(--color-ink);
   -webkit-text-size-adjust: 100%;
   min-height: 100vh;
-  background:
-    radial-gradient(700px 460px at 8% -6%, rgba(226, 122, 58, 0.5), transparent 60%),
-    radial-gradient(720px 520px at 112% 108%, rgba(226, 161, 58, 0.45), transparent 55%),
-    radial-gradient(520px 420px at 92% 2%, rgba(194, 58, 36, 0.28), transparent 60%),
-    linear-gradient(160deg, #fdf3e0 0%, #f4e3c2 46%, #efd9b5 100%);
-  background-attachment: fixed;
+  background: var(--color-paper);
 }
 
 /* Mobile-first container: full width on a phone, capped and centred on wider
@@ -87,30 +57,33 @@ body {
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  background: var(--barn);
-  box-shadow: 0 0 0 4px rgba(226, 161, 58, 0.35);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-gold-wash);
 }
 
 .brand h1 {
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 19px;
   margin: 0;
-  color: var(--text);
+  color: var(--color-ink);
 }
 
 .card {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-panel);
   padding: 18px 16px;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--surface-shadow-sm);
 }
 
 .card h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
   margin: 0 0 14px;
-  font-size: 18px;
-  color: var(--text);
+  font-size: 19px;
+  color: var(--color-ink);
 }
 
 form {
@@ -121,7 +94,7 @@ form {
 
 label {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   margin-top: 8px;
 }
 
@@ -130,55 +103,64 @@ input {
   /* Large tap target + 16px font so mobile Safari does not zoom on focus. */
   min-height: 48px;
   font-size: 16px;
+  font-family: var(--font-body);
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-strong);
-  color: var(--text);
+  border-radius: var(--radius-input);
+  border: 1px solid var(--color-rule);
+  background: var(--surface-2);
+  color: var(--color-ink);
+  transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
 
 input:focus {
-  outline: 2px solid var(--barn);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-wash);
 }
 
 .btn {
   margin-top: 18px;
   min-height: 52px;
   width: 100%;
-  background: var(--barn);
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
   border: none;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
+  font-family: var(--font-body);
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(194, 58, 36, 0.3);
+  box-shadow: var(--surface-shadow-sm);
+  transition: transform var(--dur-micro) var(--ease-out), background var(--dur-short) var(--ease-out);
 }
 
 .btn:hover {
-  background: var(--barn-dark);
+  background: var(--color-accent-2);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
 }
 
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
   box-shadow: none;
+  transform: none;
 }
 
 .btn.secondary {
-  background: var(--glass);
-  color: var(--text);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
+  background: var(--surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-rule);
   box-shadow: none;
 }
 
 .link-btn {
   background: none;
   border: none;
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 14px;
   min-height: 44px;
   padding: 0 6px;
@@ -186,28 +168,26 @@ input:focus {
 }
 
 .error {
-  color: var(--danger);
+  color: var(--color-late);
   font-size: 14px;
   margin: 12px 0 0;
 }
 
 .route-meta {
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 13px;
   padding: 4px 2px 12px;
 }
 
 .message {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-panel);
   padding: 22px 16px;
   text-align: center;
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 15px;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--surface-shadow-sm);
 }
 
 .stop-list {
@@ -220,24 +200,32 @@ input:focus {
 }
 
 .stop {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-panel);
   padding: 14px;
-  box-shadow: 0 6px 18px rgba(97, 58, 30, 0.12);
+  box-shadow: var(--surface-shadow-sm);
+  transition: box-shadow var(--dur-short) var(--ease-out);
+  /* Entrance replays every time the stop list re-renders (login, refresh,
+   * mark-complete advancing the current stop) — see .metric-card in styles.css
+   * for the same pattern. */
+  animation: hm-reveal var(--dur-long) var(--ease-out) both;
 }
+
+.stop:nth-child(1) { animation-delay: 0ms; }
+.stop:nth-child(2) { animation-delay: 60ms; }
+.stop:nth-child(3) { animation-delay: 120ms; }
+.stop:nth-child(n+4) { animation-delay: 180ms; }
 
 /* Highlight the current stop the driver should head to next (Req 8.1). */
 .stop.current {
-  border-color: var(--gold);
-  background: var(--current);
-  box-shadow: 0 0 0 2px var(--gold), 0 6px 18px rgba(97, 58, 30, 0.16);
+  border-color: var(--color-gold);
+  background: var(--color-gold-wash);
+  box-shadow: 0 0 0 2px var(--color-gold), var(--surface-shadow-sm);
 }
 
 .stop.completed {
-  opacity: 0.55;
+  opacity: 0.6;
 }
 
 .stop-head {
@@ -250,8 +238,8 @@ input:focus {
   min-width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(194, 58, 36, 0.14);
-  color: var(--barn-dark);
+  background: var(--color-accent-wash);
+  color: var(--color-accent-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -263,11 +251,11 @@ input:focus {
 .stop .name {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-ink);
 }
 
 .stop .eta {
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 13px;
   margin: 4px 0 0 40px;
 }
@@ -282,7 +270,7 @@ input:focus {
 .maps-link,
 .complete-btn {
   min-height: 48px;
-  border-radius: 12px;
+  border-radius: var(--radius-btn);
   font-size: 15px;
   font-weight: 600;
   display: inline-flex;
@@ -292,23 +280,29 @@ input:focus {
   text-decoration: none;
   cursor: pointer;
   flex: 1 1 auto;
+  transition: transform var(--dur-micro) var(--ease-out), background var(--dur-short) var(--ease-out);
 }
 
 .maps-link {
-  background: var(--glass-strong);
-  color: var(--barn-dark);
-  border: 1px solid var(--glass-border);
+  background: var(--surface-2);
+  color: var(--color-accent-2);
+  border: 1px solid var(--color-rule);
+}
+
+.maps-link:hover,
+.complete-btn:hover {
+  transform: translateY(-1px);
 }
 
 .nav-fallback {
   margin: 14px 0 0;
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 13px;
 }
 
 .complete-btn {
-  background: var(--sage);
-  color: #fff;
+  background: var(--color-on-time);
+  color: var(--color-accent-ink);
   border: none;
 }
 
@@ -317,24 +311,24 @@ input:focus {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--sage);
+  color: var(--color-on-time);
   font-weight: 700;
 }
 
 /* Early/on-time/late completion status (same class names/meaning as the
  * admin dashboard's daily delivery report — deliveryReport.css). */
 .status-early {
-  color: var(--info);
+  color: var(--color-early);
   font-weight: 600;
 }
 
 .status-on-time {
-  color: var(--sage);
+  color: var(--color-on-time);
   font-weight: 600;
 }
 
 .status-late {
-  color: var(--danger);
+  color: var(--color-late);
   font-weight: 600;
 }
 
@@ -367,14 +361,15 @@ input:focus {
 }
 
 .summary-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--barn-dark);
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 600;
+  color: var(--color-accent-2);
 }
 
 .summary-label {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   margin-top: 2px;
 }
 
@@ -383,11 +378,11 @@ input:focus {
   margin: 16px 0 0;
   text-align: center;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--color-ink-2);
 }
 
 .auth-foot a {
-  color: var(--barn-dark);
+  color: var(--color-accent-2);
   font-weight: 600;
 }
 
@@ -397,10 +392,10 @@ input:focus {
   top: 0;
   left: 0;
   right: 0;
-  height: 4px;
+  height: 3px;
   z-index: 3000;
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity var(--dur-short) var(--ease-out);
   pointer-events: none;
 }
 
@@ -412,12 +407,10 @@ input:focus {
   height: 100%;
   width: 0;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(90deg, var(--barn), var(--gold));
-  box-shadow: 0 0 10px rgba(226, 161, 58, 0.65);
-  transition: width 0.25s ease;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-gold));
+  transition: width var(--dur-short) var(--ease-out);
 }
 
 .top-progress.err .top-progress__fill {
-  background: var(--danger);
-  box-shadow: 0 0 10px rgba(192, 57, 43, 0.6);
+  background: var(--color-late);
 }

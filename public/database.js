@@ -8,6 +8,7 @@
  */
 
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
+import { countUp } from "./motion.js";
 
 const PAGE_SIZE = 50;
 
@@ -77,7 +78,9 @@ async function apiGet(url) {
 function metricCard(label, value, sub) {
   const card = el("div", "metric-card");
   card.appendChild(el("div", "label", label));
-  card.appendChild(el("div", "value", value));
+  const valueEl = el("div", "value");
+  card.appendChild(valueEl);
+  countUp(valueEl, value);
   if (sub) card.appendChild(el("div", "sub", sub));
   return card;
 }
