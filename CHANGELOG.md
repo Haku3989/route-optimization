@@ -7,14 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-21
+
+### Added
+
+- **Admin portal** (`public/admin.html`) — sign-in gated User Setup console for
+  managing admin and driver accounts: create, reset password, and delete, with
+  bearer-token session auth (`src/services/adminService.js`,
+  `src/routes/adminRoutes.js`, `src/routes/requireAdmin.js`,
+  `src/services/userService.js`, `src/db/seedAdmins.js`).
+- **DC-aware routing** — each store now resolves its own distribution center
+  from `dc list.xlsx` (parsed into `src/data/dcList.js`), so presale and
+  history routes start and end at the correct DC instead of a single shared
+  depot.
+- Driver and planner UI updates (`public/driver.js/css/html`,
+  `public/plan.js/css/html`, `public/app.js`, `public/filterOptions.js`,
+  `public/progress.js`) alongside supporting database, schema, and ingestion
+  changes.
+
 ### Fixed
 
-- Admin portal (`public/admin.html`) no longer appears stuck on the sign-in
-  screen after a successful login. `.auth-shell`'s `display: flex` tied in CSS
-  specificity with the browser's default `[hidden] { display: none }` rule, so
-  toggling `loginView.hidden` had no visual effect and the login card stayed
-  on screen over the console view. Added `.auth-shell[hidden] { display: none; }`
-  in `public/styles.css` to force it to hide, matching the existing
+- Admin portal login view no longer appears stuck on the sign-in screen after
+  a successful login. `.auth-shell`'s `display: flex` tied in CSS specificity
+  with the browser's default `[hidden] { display: none }` rule, so toggling
+  `loginView.hidden` had no visual effect and the login card stayed on screen
+  over the console view. Added `.auth-shell[hidden] { display: none; }` in
+  `public/styles.css` to force it to hide, matching the existing
   `.filter-bar[hidden]` pattern.
 
 ## [1.2.1] - 2026-07-17
@@ -105,7 +123,8 @@ Excel-driven route planning feature.
 
 - Added `exceljs`, `multer`, and `pg`; added `fast-check` as a dev dependency.
 
-[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Haku3989/route-optimization/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/Haku3989/route-optimization/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Haku3989/route-optimization/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Haku3989/route-optimization/compare/v1.0.0...v1.1.0
