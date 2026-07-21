@@ -18,6 +18,7 @@
 
 import { Router } from "express";
 import { planDeliveries } from "../services/routeService.js";
+import { defaultDepartAt } from "../services/etaService.js";
 import { getScenario } from "../data/sampleData.js";
 import { distinctHistoryFilterValues } from "../db/repositories.js";
 import ingestRoutes from "./ingestRoutes.js";
@@ -81,7 +82,7 @@ router.get("/plan/sample", requireAdmin, async (_req, res, next) => {
       depot: scenario.depot,
       vehicles: scenario.vehicles,
       orders: scenario.orders,
-      departAt: new Date(),
+      departAt: defaultDepartAt(),
     });
     res.json(plan);
   } catch (err) {
@@ -102,7 +103,7 @@ router.post("/plan", requireAdmin, async (req, res, next) => {
       depot,
       vehicles,
       orders,
-      departAt: departAt ? new Date(departAt) : new Date(),
+      departAt: departAt ? new Date(departAt) : defaultDepartAt(),
     });
     res.json(plan);
   } catch (err) {

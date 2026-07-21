@@ -9,7 +9,7 @@
 
 import { solveCVRP } from "../optimizer/vrp.js";
 import { co2ForDistance } from "../optimizer/emissions.js";
-import { etasFromLegs } from "./etaService.js";
+import { etasFromLegs, defaultDepartAt } from "./etaService.js";
 import { createRouter } from "../routing/router.js";
 
 /**
@@ -37,7 +37,7 @@ export async function planDeliveries({
   depot,
   vehicles,
   orders,
-  departAt = new Date(),
+  departAt = defaultDepartAt(),
   router = createRouter(),
 }) {
   const { routes, unassignedOrders } = solveCVRP({ depot, vehicles, orders });

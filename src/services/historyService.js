@@ -26,7 +26,7 @@
 
 import { solveCVRP, routeDistanceKm } from "../optimizer/vrp.js";
 import { co2ForDistance } from "../optimizer/emissions.js";
-import { etasFromLegs } from "./etaService.js";
+import { etasFromLegs, defaultDepartAt } from "./etaService.js";
 import { createRouter } from "../routing/router.js";
 import { createGeocoder } from "../routing/geocoder.js";
 import { depot as sampleDepot } from "../data/sampleData.js";
@@ -202,6 +202,22 @@ export function hasAnyFilter(filters) {
  * @param {object} [filters]
  * @returns {Array<{ history: object, shop: object|null }>}
  */
+/**
+ * The single calendar day a history filter's date range pins down (both
+ * `deliveryDateFrom`/`deliveryDateTo` set and equal — the day-picker always
+ * sends them equal), or `null` for a range, an open-ended filter, or no date
+ * filter at all. Feeds `defaultDepartAt` so a comparison's ETAs are dated to
+ * the day actually being viewed rather than always "today".
+ *
+ * @param {object} filters
+ * @returns {string|null} `"YYYY-MM-DD"`
+ */
+function singleDayKey(filters) {
+  const from = toDateKey(filters?.deliveryDateFrom);
+  const to = toDateKey(filters?.deliveryDateTo);
+  return from && from === to ? from : null;
+}
+
 export function applyHistoryFilters(joined, filters) {
   if (!Array.isArray(joined)) return [];
   if (!filters) return joined.slice();
@@ -390,7 +406,10 @@ async function etasByCode(router, depot, stops, departAt, speedKmh) {
  *   4-digit DC code (see `data/dcList.js`), falling back to the sample depot
  *   when neither is supplied or resolves to a known DC.
  * @param {{id?:string, speedKmh?:number}} [input.vehicle]  notional vehicle
- * @param {Date} [input.departAt]
+ * @param {Date} [input.departAt] defaults to 04:00 on the filter's single
+ *   selected day (`deliveryDateFrom`/`deliveryDateTo`, when they're equal —
+ *   the day-picker always sends them equal), or today when the filter spans
+ *   a range or has no date at all (see `etaService.defaultDepartAt`)
  * @param {{ repositories?: object, router?: object, geocoder?: object }} [input.deps]
  *   Injectable dependencies; default to the real repository module, the
  *   configured router, and the configured geocoder (used to resolve a
@@ -410,12 +429,13 @@ export async function compareHistory({
   filters = {},
   depot,
   vehicle,
-  departAt = new Date(),
+  departAt,
   deps = {},
 } = {}) {
   const repositories = deps.repositories || realRepositories;
   const router = deps.router || createRouter();
   const geocoder = deps.geocoder || createGeocoder();
+  const resolvedDepartAt = departAt ?? defaultDepartAt(singleDayKey(filters));
 
   // Resolve the depot: an explicit `depot` wins; otherwise derive it from the
   // filter's StoreName (preferred) or DC_Name — each store's leading 4-digit
@@ -487,8 +507,8 @@ export async function compareHistory({
 
   // Per-customer ETAs for BOTH orderings (Requirement 3.3).
   const [historicalEtas, optimizedEtas] = await Promise.all([
-    etasByCode(router, resolvedDepot, historicalStops, departAt, speedKmh),
-    etasByCode(router, resolvedDepot, optimizedStops, departAt, speedKmh),
+    etasByCode(router, resolvedDepot, historicalStops, resolvedDepartAt, speedKmh),
+    etasByCode(router, resolvedDepot, optimizedStops, resolvedDepartAt, speedKmh),
   ]);
 
   // Sequence positions per ordering (1-based).
