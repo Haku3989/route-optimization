@@ -289,6 +289,38 @@ a.btn {
   border-color: var(--barn);
 }
 
+/* Glass-themed dropdown: frosted-glass closed control with a custom chevron
+ * (native <select> popups are rendered by the OS/browser and cannot take a
+ * backdrop-filter blur themselves, so the open option list gets warm-toned
+ * colors instead — the closest a native select can get to the glass theme). */
+.filter-fields select {
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  padding-right: 26px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%237c6a58' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+  color-scheme: light;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.filter-fields select:hover {
+  background-color: var(--glass);
+  border-color: var(--gold);
+}
+
+.filter-fields select:focus {
+  box-shadow: 0 0 0 3px rgba(194, 58, 36, 0.15);
+}
+
+.filter-fields select option {
+  background: var(--wheat);
+  color: var(--text);
+}
+
 .filter-actions {
   display: flex;
   align-items: center;

@@ -20,7 +20,7 @@
 import { summarizeComparison, fmtEta, buildFilters } from "./planView.js";
 import * as progress from "./progress.js";
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
-import { fetchFilterOptions, populateFilterForm } from "./filterOptions.js";
+import { wireCascadingFilters } from "./filterOptions.js";
 
 const ROUTE_COLORS = [
   "#ffb703",
@@ -485,9 +485,8 @@ if (ensureAdmin()) {
   wireFilters();
   updateFilterVisibility();
   document.getElementById("optimizeBtn").addEventListener("click", optimize);
-  // Populate the categorical filter dropdowns from the uploaded history data.
-  fetchFilterOptions().then((options) => {
-    if (options) populateFilterForm(document.getElementById("historyFilters"), options);
-  });
+  // Populate the categorical filter dropdowns from the uploaded history data,
+  // cascading each dropdown's options by whatever is already selected.
+  wireCascadingFilters(document.getElementById("historyFilters"));
   optimize();
 }

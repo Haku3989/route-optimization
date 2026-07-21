@@ -41,10 +41,25 @@ router.get("/scenario", requireAdmin, (_req, res) => {
  * the workbook column names the filter forms use. Powers the categorical filter
  * dropdowns on the dashboard + planner. Admin-gated like the rest of the planner
  * surface.
+ *
+ * Accepts the same query-string keys as the filter forms (`DC_Name`,
+ * `StoreName`, `StoreGroup`, `Store Area`, `CustomerType`) as the CURRENTLY
+ * selected values; each returned column's options are then scoped by every
+ * OTHER supplied value, so the dropdowns cascade with the data hierarchy
+ * (e.g. `?DC_Name=...` narrows the returned `StoreName` list to that DC's
+ * stores) instead of always listing every value in the dataset.
  */
-router.get("/filters", requireAdmin, async (_req, res, next) => {
+router.get("/filters", requireAdmin, async (req, res, next) => {
   try {
-    const values = await distinctHistoryFilterValues();
+    const q = req.query || {};
+    const activeFilters = {
+      dcName: typeof q.DC_Name === "string" ? q.DC_Name : undefined,
+      storeName: typeof q.StoreName === "string" ? q.StoreName : undefined,
+      storeGroup: typeof q.StoreGroup === "string" ? q.StoreGroup : undefined,
+      storeArea: typeof q["Store Area"] === "string" ? q["Store Area"] : undefined,
+      customerType: typeof q.CustomerType === "string" ? q.CustomerType : undefined,
+    };
+    const values = await distinctHistoryFilterValues(activeFilters);
     res.json({
       DC_Name: values.dcName,
       StoreName: values.storeName,

@@ -2,9 +2,12 @@
  * Integration tests for the raw-SQL repository layer (task 3.4).
  *
  * These exercise the REAL `pg` layer and SQL against a Postgres database and are
- * SKIPPED cleanly when `DATABASE_URL` is not set (see tests/helpers/dbIntegration.js).
- * When a DB is configured, the schema is applied once (before) and every table
- * is truncated between tests (beforeEach) for isolation; the pool is closed after.
+ * SKIPPED cleanly when `TEST_DATABASE_URL` is not set (see
+ * tests/helpers/dbIntegration.js — deliberately a SEPARATE variable from the
+ * app's `DATABASE_URL`, so running these against your real dev database
+ * requires an explicit, separate opt-in). When a test DB is configured, the
+ * schema is applied once (before) and every table is truncated between tests
+ * (beforeEach) for isolation; the pool is closed after.
  *
  * Coverage (Requirements 1.8, 2.5):
  *   - upsertShops → joinPresale / joinHistory round-trip the stored rows.
@@ -175,5 +178,54 @@ test(
     assert.equal(history.shop.serviceTimeMin, 25);
     assert.equal(history.shop.openTime, "06:30");
     assert.equal(history.shop.closeTime, "20:00");
+  }
+);
+
+test(
+  "distinctHistoryFilterValues scopes each column by every OTHER active filter (cascading dropdowns)",
+  { skip: DB_SKIP },
+  async () => {
+    await repositories.insertHistoryEntries([
+      {
+        customerCode: "H1",
+        timeVisit: "2026-01-10T09:00:00",
+        dcName: "DC_A",
+        storeName: "Store A1",
+        storeGroup: "Group X",
+      },
+      {
+        customerCode: "H2",
+        timeVisit: "2026-01-10T09:00:00",
+        dcName: "DC_A",
+        storeName: "Store A2",
+        storeGroup: "Group Y",
+      },
+      {
+        customerCode: "H3",
+        timeVisit: "2026-01-10T09:00:00",
+        dcName: "DC_B",
+        storeName: "Store B1",
+        storeGroup: "Group X",
+      },
+    ]);
+
+    // No active filters -> every column lists every distinct value.
+    const unfiltered = await repositories.distinctHistoryFilterValues();
+    assert.deepEqual(unfiltered.dcName, ["DC_A", "DC_B"]);
+    assert.deepEqual(unfiltered.storeName, ["Store A1", "Store A2", "Store B1"]);
+
+    // Selecting DC_A narrows StoreName to DC_A's own stores...
+    const scopedToDcA = await repositories.distinctHistoryFilterValues({ dcName: "DC_A" });
+    assert.deepEqual(scopedToDcA.storeName, ["Store A1", "Store A2"]);
+    assert.deepEqual(scopedToDcA.storeGroup, ["Group X", "Group Y"]);
+    // ...but DC_Name's OWN list is never self-scoped, so both DCs still show.
+    assert.deepEqual(scopedToDcA.dcName, ["DC_A", "DC_B"]);
+
+    // Selecting DC_A + Store A1 narrows StoreGroup down to just Group X.
+    const scopedToStoreA1 = await repositories.distinctHistoryFilterValues({
+      dcName: "DC_A",
+      storeName: "Store A1",
+    });
+    assert.deepEqual(scopedToStoreA1.storeGroup, ["Group X"]);
   }
 );

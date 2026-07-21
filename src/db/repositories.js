@@ -616,12 +616,26 @@ export async function deleteAdminSession(token) {
 /**
  * Distinct, non-empty values for each categorical History column, sorted
  * ascending. Column names are hardcoded constants (never user input), so the
- * interpolation below carries no injection risk.
+ * interpolation below carries no injection risk; the only user-controlled
+ * values (`activeFilters`) are bound as parameters, never interpolated.
  *
+ * Cascading ("data hierarchy") behavior: when `activeFilters` selects a value
+ * for one or more OTHER columns, each column's own distinct-values query is
+ * scoped (`WHERE otherColumn = $n ...`) by every other active filter — so,
+ * e.g., picking a `dcName` narrows the returned `storeName` list to that DC's
+ * stores. A column is never scoped by its OWN active filter, so its current
+ * selection stays selectable alongside its sibling values. DC_Name and
+ * StoreName form a strict one-to-many chain in this data; Store Area and
+ * CustomerType are looser co-occurrence facets, so this scopes every column
+ * by every other active one rather than assuming a single fixed tree.
+ *
+ * @param {{ dcName?:string, storeName?:string, storeGroup?:string,
+ *   storeArea?:string, customerType?:string }} [activeFilters] currently
+ *   selected filter values (only non-empty strings count as "active")
  * @returns {Promise<{ dcName:string[], storeName:string[], storeGroup:string[],
  *   storeArea:string[], customerType:string[] }>}
  */
-export async function distinctHistoryFilterValues() {
+export async function distinctHistoryFilterValues(activeFilters = {}) {
   const columns = [
     ["dcName", "dc_name"],
     ["storeName", "store_name"],
@@ -630,13 +644,31 @@ export async function distinctHistoryFilterValues() {
     ["customerType", "customer_type"],
   ];
 
+  // Only non-empty string values count as "active" scoping filters.
+  const active = {};
+  for (const [key, column] of columns) {
+    const value = activeFilters[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      active[column] = value;
+    }
+  }
+
   const result = {};
   for (const [key, column] of columns) {
+    const conditions = [`${column} IS NOT NULL`, `${column} <> ''`];
+    const params = [];
+    for (const [otherColumn, value] of Object.entries(active)) {
+      if (otherColumn === column) continue; // never self-scope
+      params.push(value);
+      conditions.push(`${otherColumn} = $${params.length}`);
+    }
+
     const rows = await query(
       `SELECT DISTINCT ${column} AS value
          FROM history_entries
-        WHERE ${column} IS NOT NULL AND ${column} <> ''
-        ORDER BY value`
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY value`,
+      params
     );
     result[key] = rows.rows.map((row) => row.value);
   }

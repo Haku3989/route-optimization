@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Filter dropdowns (DC_Name, StoreName, StoreGroup, Store Area, CustomerType)
+  on the dashboard and planner now cascade with the data's real hierarchy:
+  picking a value narrows every OTHER dropdown to only the values that still
+  co-occur with the current selection (e.g. choosing a DC narrows StoreName to
+  that DC's own stores), instead of always listing every distinct value in the
+  dataset. `GET /api/filters` accepts the current selection as query
+  parameters and `distinctHistoryFilterValues` scopes each column's query by
+  every other active filter server-side; `filterOptions.js`'s new
+  `wireCascadingFilters` refetches and repopulates the form on every select
+  change.
+- Filter dropdowns now use the app's glass theme: frosted-glass closed
+  control with a custom chevron and warm-toned option list, matching the
+  rest of the UI (native `<select>` popups can't take a backdrop blur
+  themselves, so the open list gets matching colors instead).
+
+### Fixed
+
+- Integration tests now read a separate `TEST_DATABASE_URL` instead of
+  `DATABASE_URL` (see `tests/helpers/dbIntegration.js`). Every integration
+  test truncates all tables between cases for isolation; reading the same
+  `DATABASE_URL` used to run the app meant running `npm test` in any
+  shell/editor/git-hook where that variable pointed at a real database would
+  silently wipe it. Decoupling the variable closes this regardless of what
+  `DATABASE_URL` is set to.
+- Presale planning (`buildPresalePlan`) no longer hangs the server on a
+  broadly-filtered request. `solveCVRP`'s nearest-neighbour assignment is
+  ~O(n^2) in the order count, and the endpoint had no size cap (unlike
+  `compareHistory`'s `MAX_COMPARISON_CUSTOMERS`) — an unfiltered date filter
+  could match hundreds of thousands of rows and peg the CPU. Added a
+  `MAX_PRESALE_ORDERS` (3000) guard that returns a guidance message asking the
+  caller to narrow the filter, instead of hanging.
+
 ## [1.4.0] - 2026-07-21
 
 ### Added

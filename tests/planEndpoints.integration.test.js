@@ -5,9 +5,10 @@
  * `POST /api/history/compare` and `POST /api/presale/plan` against the running
  * Express app, asserting the response shapes and the guard messages.
  *
- * SKIPPED cleanly when `DATABASE_URL` is unset; `truncateAll()` runs between
- * tests for isolation. The guard-message constants are imported dynamically (in
- * `before`) so a skipped run never pulls in the pool via the service modules.
+ * SKIPPED cleanly when `TEST_DATABASE_URL` is unset; `truncateAll()` runs
+ * between tests for isolation. The guard-message constants are imported
+ * dynamically (in `before`) so a skipped run never pulls in the pool via the
+ * service modules.
  *
  * _Requirements: 3.4, 5.1, 6.1_
  */

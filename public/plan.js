@@ -30,7 +30,7 @@ import {
   handledUnauthorized,
   redirectToLogin,
 } from "./adminAuth.js";
-import { fetchFilterOptions, populateFilterForm } from "./filterOptions.js";
+import { fetchFilterOptions, populateFilterForm, wireCascadingFilters } from "./filterOptions.js";
 
 // The planner is admin-gated: without a token the ingest/history/presale
 // endpoints return 401, so send the user to sign in before showing the page.
@@ -511,7 +511,11 @@ function readFormInputs(form) {
 
 // ---------------------------------------------------------------------------
 // Populate the categorical filter dropdowns from the uploaded history data.
-// Refreshed on load and after each successful upload (new data may add values).
+// Reset to the full unfiltered lists after each successful upload (new data
+// may add values). Cascading ("data hierarchy") narrowing while the user
+// picks filters is wired separately per form via `wireCascadingFilters` —
+// see the boot section below — so each dropdown's options stay scoped by
+// whatever the user has already selected in that same form.
 // ---------------------------------------------------------------------------
 
 async function refreshFilterOptions() {
@@ -521,4 +525,5 @@ async function refreshFilterOptions() {
   populateFilterForm(presaleForm, options);
 }
 
-refreshFilterOptions();
+wireCascadingFilters(historyForm);
+wireCascadingFilters(presaleForm);

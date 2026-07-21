@@ -11,9 +11,9 @@
  *   - GET /api/driver/route with the Bearer token -> 200 { route }.
  *   - GET without a token, and with an unknown token -> 401 with NO route data.
  *
- * SKIPPED cleanly when `DATABASE_URL` is unset; `truncateAll()` runs between
- * tests for isolation. `seedDrivers` and `pg` are imported dynamically so a
- * skipped run never constructs the pool.
+ * SKIPPED cleanly when `TEST_DATABASE_URL` is unset; `truncateAll()` runs
+ * between tests for isolation. `seedDrivers` and `pg` are imported dynamically
+ * so a skipped run never constructs the pool.
  *
  * _Requirements: 10.1, 10.3_
  */

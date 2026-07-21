@@ -8,7 +8,8 @@
  * response `type` / `rowCount` / `mapped` / `warnings` are correct.
  *
  * Covers a Shop_Master upload plus Presale and History uploads. SKIPPED cleanly
- * when `DATABASE_URL` is unset; `truncateAll()` runs between tests for isolation.
+ * when `TEST_DATABASE_URL` is unset; `truncateAll()` runs between tests for
+ * isolation.
  *
  * _Requirements: 1.1, 1.2, 1.4, 2.5_
  */

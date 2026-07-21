@@ -2,44 +2,71 @@
  * Shared harness for the DB-backed integration tests (tasks 3.4, 16.1–16.3).
  *
  * These tests exercise the REAL `pg` repository layer / SQL and therefore
- * require a Postgres instance reachable via `DATABASE_URL`. They MUST skip
- * cleanly — never fail and never hang — when no database is configured.
+ * require a Postgres instance reachable via `TEST_DATABASE_URL`. They MUST
+ * skip cleanly — never fail and never hang — when no test database is
+ * configured.
  *
- * Design ("Testing Strategy > Integration tests"): connect via a `DATABASE_URL`
+ * Design ("Testing Strategy > Integration tests"): connect via a database URL
  * pointing at a disposable schema, apply `db/schema.sql` once, truncate/reset
  * all tables between tests for isolation, and skip with a clear message when
- * `DATABASE_URL` is absent.
+ * no test database is configured.
+ *
+ * ## Why a SEPARATE `TEST_DATABASE_URL`, not `DATABASE_URL`
+ *
+ * Every test file's `beforeEach` calls `repositories.truncateAll()` to
+ * isolate cases — it wipes `shops`, `history_entries`, `presale_entries`,
+ * `drivers`, and `admins`. `DATABASE_URL` is also the variable the README
+ * tells you to export to run the APP locally, so if these tests read that
+ * same variable, running `npm test` (or a single integration file) in any
+ * shell/editor/git-hook where `DATABASE_URL` happens to point at your real
+ * dev database silently truncates it — no warning, no confirmation. That
+ * happened during development of this harness. Reading a dedicated
+ * `TEST_DATABASE_URL` instead means a plain `export DATABASE_URL=...` for
+ * local dev can NEVER trigger it; a test database must be configured
+ * explicitly and separately.
  *
  * ## Skip-clean contract
  *
- * `DB_SKIP` is `false` when a database is configured (tests run) or a reason
- * STRING when it is not (node:test shows it as the skip reason). Test files pass
- * it straight to `test(name, { skip: DB_SKIP }, fn)` and guard every hook with
- * `if (DB_SKIP) return;`.
+ * `DB_SKIP` is `false` when a test database is configured (tests run) or a
+ * reason STRING when it is not (node:test shows it as the skip reason). Test
+ * files pass it straight to `test(name, { skip: DB_SKIP }, fn)` and guard
+ * every hook with `if (DB_SKIP) return;`.
  *
  * ## Why lazy imports
  *
- * `src/db/pool.js` constructs the shared `pg.Pool` at import time and
- * `src/server.js` imports it transitively. To honour "when skipped, do NOT open
- * the pool or start the server at all", nothing DB/server-related is imported
- * statically here — the loaders below dynamically import those modules, so a
- * skipped run never touches the database layer.
+ * `src/db/pool.js` constructs the shared `pg.Pool` from `process.env.DATABASE_URL`
+ * at import time and `src/server.js` imports it transitively. To honour "when
+ * skipped, do NOT open the pool or start the server at all", nothing
+ * DB/server-related is imported statically here — the loaders below
+ * dynamically import those modules (after pointing `DATABASE_URL` at the test
+ * database — see `loadPool`), so a skipped run never touches the database
+ * layer, and a running one never touches whatever `DATABASE_URL` the app
+ * itself is configured with.
  */
 
-/** Raw connection string; `undefined` means no database is configured. */
-export const DATABASE_URL = process.env.DATABASE_URL;
+/** Raw test-database connection string; `undefined` means none is configured. */
+export const DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 /**
  * Falsy => run the tests; a string => node:test skips them and prints the
- * reason. Only the absence of `DATABASE_URL` triggers a skip (a configured but
- * unreachable DB is a real failure, surfaced by the `before` hook).
+ * reason. Only the absence of `TEST_DATABASE_URL` triggers a skip (a
+ * configured but unreachable DB is a real failure, surfaced by the `before`
+ * hook).
  */
 export const DB_SKIP = DATABASE_URL
   ? false
-  : "DATABASE_URL not set — DB integration test skipped (no Postgres available)";
+  : "TEST_DATABASE_URL not set — DB integration test skipped (no test Postgres configured)";
 
-/** Dynamically load the connection pool module (constructs the pool). */
+/**
+ * Dynamically load the connection pool module (constructs the pool).
+ *
+ * Points `process.env.DATABASE_URL` at `TEST_DATABASE_URL` FIRST (pool.js
+ * reads `DATABASE_URL` at import time) so the pool this test run gets is
+ * always the disposable test database — never whatever `DATABASE_URL` the
+ * app itself happens to be configured with in this shell (see module header).
+ */
 export async function loadPool() {
+  process.env.DATABASE_URL = DATABASE_URL;
   return import("../../src/db/pool.js");
 }
 

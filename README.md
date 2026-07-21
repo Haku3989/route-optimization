@@ -131,8 +131,18 @@ npm test
 ```
 
 The unit and property tests run without Postgres. The database-backed
-integration tests skip automatically unless `DATABASE_URL` is set; point it at a
-disposable test database to run them.
+integration tests skip automatically unless `TEST_DATABASE_URL` is set — a
+**separate** variable from the `DATABASE_URL` you set above for running the
+app. This is deliberate: every integration test truncates all tables between
+cases for isolation, so if they read the same `DATABASE_URL` you use to run
+the app, running `npm test` in any shell where that's still exported would
+silently wipe your real data. Point `TEST_DATABASE_URL` at a disposable
+database (never your dev one) to run them, e.g.:
+
+```bash
+export TEST_DATABASE_URL="postgres://postgres:password@localhost:5432/route_optimization_test"
+npm test
+```
 
 ## API
 

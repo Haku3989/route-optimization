@@ -68,6 +68,18 @@ const FLEET_DEFAULT_FUEL_TYPE = "diesel";
 const FLEET_DEFAULT_SPEED_KMH = 35;
 
 /**
+ * Upper bound on the number of routable orders a single presale plan will
+ * optimize. `solveCVRP`'s nearest-neighbour assignment scans every
+ * still-unassigned order on each assignment step — ~O(n^2) in the order count
+ * regardless of fleet size — so an unfiltered whole-dataset request (hundreds
+ * of thousands of rows) would peg the CPU and never return. A generously
+ * route-sized cap keeps planning both fast and meaningful — the caller
+ * narrows the set with filters (DC, store, area, delivery date, customer
+ * type) to stay under it.
+ */
+const MAX_PRESALE_ORDERS = 3000;
+
+/**
  * Build the vehicle fleet for a presale plan from the store assigned to each
  * driver in the admin "User Setup" console (`drivers.route_id`, populated from
  * the StoreName dropdown), so routes are labelled with a real store (e.g.
@@ -329,6 +341,17 @@ export async function buildPresalePlan({
           : "no matching shop in Shop_Master",
       });
     }
+  }
+
+  // Guard against optimizing an unfiltered whole-dataset request (which would
+  // hang the O(n^2) assignment step). Ask the caller to narrow the set first.
+  if (orders.length > MAX_PRESALE_ORDERS) {
+    return {
+      message:
+        `Too many customers (${orders.length}) for one presale plan. ` +
+        `Apply a filter (DC, store, area, delivery date, or customer type) ` +
+        `to narrow to ${MAX_PRESALE_ORDERS} or fewer.`,
+    };
   }
 
   // Optimize + ETA the routable orders (Requirement 5.2, 5.3). planDeliveries'

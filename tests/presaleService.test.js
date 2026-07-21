@@ -549,3 +549,47 @@ test("buildPresalePlan: a filter matching no customers returns the no-match mess
 
   assert.deepEqual(result, { message: PRESALE_MESSAGES.NO_CUSTOMERS_MATCHED });
 });
+
+test("buildPresalePlan: an oversized routable order set is rejected instead of hanging the solver", async () => {
+  // MAX_PRESALE_ORDERS is 3000; 3001 resolvable customers must be rejected
+  // with a guidance message rather than handed to the O(n^2) CVRP assignment.
+  const joined = Array.from({ length: 3001 }, (_, i) => ({
+    presale: {
+      id: `C${i}`,
+      customerCode: `C${i}`,
+      customerName: `Shop ${i}`,
+      deliveryDate: "2026-02-01",
+      demand: 1,
+    },
+    shop: { location: { lat: 13.7, lng: 100.5 }, coordSource: "master" },
+  }));
+
+  const result = await buildPresalePlan({
+    filters: { DELIVERY_DATE: "2026-02-01" },
+    deps: { repositories: fakeRepos(joined) },
+  });
+
+  assert.ok(result.message, `expected a guard message, got ${JSON.stringify(result).slice(0, 200)}`);
+  assert.match(result.message, /Too many customers \(3001\)/);
+});
+
+test("buildPresalePlan: exactly the cap of routable orders is still planned", async () => {
+  const joined = Array.from({ length: 5 }, (_, i) => ({
+    presale: {
+      id: `C${i}`,
+      customerCode: `C${i}`,
+      customerName: `Shop ${i}`,
+      deliveryDate: "2026-02-01",
+      demand: 1,
+    },
+    shop: { location: { lat: 13.7 + i * 0.01, lng: 100.5 }, coordSource: "master" },
+  }));
+
+  const result = await buildPresalePlan({
+    depot: DEPOT,
+    filters: { DELIVERY_DATE: "2026-02-01" },
+    deps: { repositories: fakeRepos(joined) },
+  });
+
+  assert.ok(result.plan, `expected a plan, got ${JSON.stringify(result)}`);
+});
