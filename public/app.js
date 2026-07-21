@@ -1,23 +1,28 @@
 /* Farmhouse Route Optimization — dashboard client.
  *
- * The dashboard has two data sources, switched with the topbar toggle:
+ * The dashboard has three data sources, switched with the topbar toggle:
  *
  *   • "History" (default) — POST /api/history/compare. Visualizes the ORIGINAL
  *     delivery order (from the History workbook's TIME_VISIT) against a freshly
  *     AI-optimized order for the same customers: two routes on the map, the
  *     distance / CO₂ saving as metric cards, and a per-customer sequence diff in
  *     the sidebar. This is the history-based optimizer view.
+ *   • "Presale" — POST /api/presale/plan (same endpoint + filters as the
+ *     planner page's "3 · Presale planning" section) — lets an admin preview
+ *     an optimized presale route on the dashboard map before drivers see it,
+ *     without leaving the dashboard. Shaped with the shared `summarizePlan`
+ *     from planView.js (also used by the planner page).
  *   • "Sample plan" — GET /api/plan/sample. The original multi-vehicle sample
  *     scenario (kept so the fleet-packing demo is still one click away).
  *
- * View shaping for the History source is delegated to the pure `planView.js`
- * module (shared with the planner page); this file is only the DOM + Leaflet +
- * fetch wiring. All server-provided text (customer names) is written with
- * textContent / DOM APIs — never innerHTML — so untrusted content cannot inject
- * markup.
+ * View shaping for the History and Presale sources is delegated to the pure
+ * `planView.js` module (shared with the planner page); this file is only the
+ * DOM + Leaflet + fetch wiring. All server-provided text (customer names) is
+ * written with textContent / DOM APIs — never innerHTML — so untrusted
+ * content cannot inject markup.
  */
 
-import { summarizeComparison, fmtEta, buildFilters } from "./planView.js";
+import { summarizeComparison, summarizePlan, fmtEta, buildFilters } from "./planView.js";
 import * as progress from "./progress.js";
 import { adminAuthHeader, ensureAdmin, handledUnauthorized } from "./adminAuth.js";
 import { wireCascadingFilters, populateSelect } from "./filterOptions.js";
@@ -554,6 +559,196 @@ function renderSampleRoutes(plan) {
   setChildren(document.getElementById("routes"), nodes);
 }
 
+// ===========================================================================
+// Presale source — preview an optimized presale route on the dashboard map,
+// the same view the planner page's "3 · Presale planning" section builds
+// (POST /api/presale/plan), shaped with the shared summarizePlan().
+// ===========================================================================
+
+/** Current Presale filter criteria, trimmed + empties dropped. */
+function currentPresaleFilters() {
+  const form = document.getElementById("presaleFilters");
+  return buildFilters(readFormInputs(form));
+}
+
+async function loadPresale() {
+  const res = await fetch("/api/presale/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...adminAuthHeader() },
+    body: JSON.stringify({ filters: currentPresaleFilters() }),
+  });
+  if (handledUnauthorized(res)) return;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `API error ${res.status}`);
+
+  const vm = summarizePlan(data);
+  if (vm.isMessage) {
+    renderPresaleMessage(vm.message);
+    return;
+  }
+  renderPresaleMetrics(vm);
+  renderPresaleMap(vm);
+  renderPresaleSidebar(vm);
+}
+
+function renderPresaleMessage(message) {
+  renderMetricCards([]);
+  layerGroup.clearLayers();
+  const box = el("div", "message-box", message);
+  const hint = el(
+    "p",
+    "hint",
+    "Apply a filter above (a delivery date narrows this the most), or upload " +
+      "the Presale and Shop_Master workbooks on the planner page.",
+  );
+  const link = el("a", "btn secondary", "Go to route planner input");
+  link.href = "plan.html";
+  setChildren(document.getElementById("routes"), [box, hint, link]);
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function renderPresaleMetrics(vm) {
+  const totalDistanceKm = round2(vm.routes.reduce((sum, r) => sum + r.distanceKm, 0));
+  const totalCo2Kg = round2(vm.routes.reduce((sum, r) => sum + r.co2Kg, 0));
+  renderMetricCards([
+    { label: "Customers routed", value: String(vm.stops.length) },
+    { label: "Vehicles used", value: String(vm.routes.length) },
+    { label: "Total distance", value: `${totalDistanceKm} km` },
+    { label: "CO₂ emissions", value: `${totalCo2Kg} kg` },
+  ]);
+}
+
+/** Each route draws from ITS OWN depot (a store's own DC) when it has one,
+ * so multiple depot markers can appear — one per distinct depot actually used. */
+function renderPresaleMap(vm) {
+  layerGroup.clearLayers();
+  const bounds = [];
+  const markedDepots = new Set();
+
+  vm.routes.forEach((route, idx) => {
+    if (route.stops.length === 0) return;
+    const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
+    const depot = route.depot;
+
+    if (depot) {
+      const key = `${depot.lat},${depot.lng}`;
+      if (!markedDepots.has(key)) {
+        markedDepots.add(key);
+        L.marker([depot.lat, depot.lng], { title: depot.name || depot.code || "Depot" })
+          .bindPopup(`<b>Depot</b><br>${escapeHtml(depot.name || depot.code || route.vehicleId || "")}`)
+          .addTo(layerGroup);
+        bounds.push([depot.lat, depot.lng]);
+      }
+    }
+
+    const line = depot ? [[depot.lat, depot.lng]] : [];
+    for (const stop of route.stops) {
+      if (!stop.location) continue;
+      const { lat, lng } = stop.location;
+      line.push([lat, lng]);
+      bounds.push([lat, lng]);
+
+      L.circleMarker([lat, lng], {
+        radius: 8,
+        color,
+        fillColor: color,
+        fillOpacity: 0.9,
+        weight: 2,
+      })
+        .bindPopup(
+          `<b>${stop.sequence}. ${escapeHtml(stop.customer)}</b><br>` +
+            `${escapeHtml(route.vehicleId)} · ETA ${fmtEta(stop.eta)}`,
+        )
+        .addTo(layerGroup);
+    }
+    if (depot) line.push([depot.lat, depot.lng]);
+
+    if (line.length > 1) L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(layerGroup);
+  });
+
+  fitBounds(bounds);
+}
+
+function renderPresaleSidebar(vm) {
+  const nodes = [];
+
+  vm.routes.forEach((route, idx) => {
+    const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
+    const isEv = route.fuelType === "ev";
+
+    const card = el("div", "route-card");
+    const head = el("div", "route-head");
+    const veh = el("div", "veh");
+    const sw = el("span", "swatch");
+    sw.style.background = color;
+    veh.appendChild(sw);
+    veh.appendChild(el("span", null, route.vehicleId || "(vehicle)"));
+    head.appendChild(veh);
+    if (route.fuelType) head.appendChild(el("span", `tag ${isEv ? "ev" : ""}`, route.fuelType));
+    card.appendChild(head);
+
+    const loadText = route.load != null ? ` · load ${route.load}/${route.capacity}` : "";
+    card.appendChild(
+      el(
+        "div",
+        "route-meta",
+        `${route.stops.length} stops · ${route.distanceKm} km · ${route.co2Kg} kg CO₂${loadText}`,
+      ),
+    );
+
+    const list = el("ul", "stop-list");
+    for (const s of route.stops) {
+      const li = el("li");
+      li.appendChild(el("span", "seq", s.sequence));
+      const info = el("div", "stop-info");
+      info.appendChild(el("div", "name", s.customer));
+      info.appendChild(el("div", "eta", `ETA ${fmtEta(s.eta)}`));
+      li.appendChild(info);
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+    nodes.push(card);
+  });
+
+  if (vm.unassigned.length > 0) {
+    nodes.push(el("div", "section-title", `Unassigned (${vm.unassigned.length})`));
+    const list = el("ul", "stop-list");
+    for (const u of vm.unassigned) {
+      const li = el("li");
+      const info = el("div", "stop-info");
+      info.appendChild(el("div", "name", u.customer || u.customerCode));
+      info.appendChild(el("div", "eta", u.reason));
+      li.appendChild(info);
+      list.appendChild(li);
+    }
+    nodes.push(list);
+  }
+
+  if (vm.windowViolations.length > 0) {
+    nodes.push(
+      el("div", "section-title warn-title", `Window violations (${vm.windowViolations.length})`),
+    );
+    const list = el("ul", "stop-list");
+    for (const w of vm.windowViolations) {
+      const li = el("li");
+      const info = el("div", "stop-info");
+      info.appendChild(el("div", "name", w.customerCode));
+      info.appendChild(
+        el("div", "eta", `ETA ${fmtEta(w.eta)} · window ${w.openTime}–${w.closeTime}`),
+      );
+      li.appendChild(info);
+      list.appendChild(li);
+    }
+    nodes.push(list);
+  }
+
+  if (nodes.length === 0) nodes.push(el("p", "hint", "No routes generated."));
+  setChildren(document.getElementById("routes"), nodes);
+}
+
 // ---------------------------------------------------------------------------
 // Leaflet popups use innerHTML; escape the few interpolated text values.
 // ---------------------------------------------------------------------------
@@ -578,6 +773,8 @@ async function optimize() {
   try {
     if (currentSource === "sample") {
       await loadSample();
+    } else if (currentSource === "presale") {
+      await loadPresale();
     } else {
       await loadHistory();
     }
@@ -593,9 +790,10 @@ async function optimize() {
   }
 }
 
-/** The filter bar only applies to the History source, so hide it otherwise. */
+/** Each filter bar only applies to its own source, so hide the other(s). */
 function updateFilterVisibility() {
   document.getElementById("historyFilters").hidden = currentSource !== "history";
+  document.getElementById("presaleFilters").hidden = currentSource !== "presale";
 }
 
 function wireToggle() {
@@ -632,17 +830,34 @@ function wireFilters() {
   });
 }
 
+function wirePresaleFilters() {
+  const form = document.getElementById("presaleFilters");
+  // Applying filters re-runs the Presale plan preview.
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    currentSource = "presale";
+    optimize();
+  });
+  document.getElementById("clearPresaleFilters").addEventListener("click", () => {
+    form.reset();
+    currentSource = "presale";
+    optimize();
+  });
+}
+
 // The dashboard is admin-gated: require a token before booting (otherwise the
 // data endpoints would 401). ensureAdmin() redirects to the login page.
 if (ensureAdmin()) {
   initMap();
   wireToggle();
   wireFilters();
+  wirePresaleFilters();
   updateFilterVisibility();
   document.getElementById("optimizeBtn").addEventListener("click", optimize);
   // Populate the categorical filter dropdowns from the uploaded history data,
   // cascading each dropdown's options by whatever is already selected.
   wireCascadingFilters(document.getElementById("historyFilters"));
+  wireCascadingFilters(document.getElementById("presaleFilters"));
   // Day picker: only offers days that have data for the current selection.
   wireHistoryDayFilter(document.getElementById("historyFilters"));
   optimize();

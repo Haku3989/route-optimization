@@ -551,6 +551,21 @@ a.btn {
 }
 
 /* --------------------------------------------------------------------------
+ * Presale source (dashboard sidebar) — section headers shared with plan.css
+ * ------------------------------------------------------------------------ */
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: var(--text);
+}
+
+.warn-title {
+  color: var(--barn);
+}
+
+/* --------------------------------------------------------------------------
  * Auth pages (admin sign-in) — centered frosted-glass card
  * ------------------------------------------------------------------------ */
 

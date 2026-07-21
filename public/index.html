@@ -24,6 +24,9 @@
           <button class="seg active" data-source="history" role="tab" aria-selected="true">
             History
           </button>
+          <button class="seg" data-source="presale" role="tab" aria-selected="false">
+            Presale
+          </button>
           <button class="seg" data-source="sample" role="tab" aria-selected="false">
             Sample plan
           </button>
@@ -49,6 +52,21 @@
       <div class="filter-actions">
         <button type="submit" class="btn">Apply filters</button>
         <button type="button" id="clearFilters" class="btn secondary">Clear</button>
+      </div>
+    </form>
+
+    <form id="presaleFilters" class="filter-bar" hidden>
+      <div class="filter-fields">
+        <label>DC_Name<select name="DC_Name"><option value="">(any)</option></select></label>
+        <label>StoreName<select name="StoreName"><option value="">(any)</option></select></label>
+        <label>StoreGroup<select name="StoreGroup"><option value="">(any)</option></select></label>
+        <label>Store Area<select name="Store Area"><option value="">(any)</option></select></label>
+        <label>CustomerType<select name="CustomerType"><option value="">(any)</option></select></label>
+        <label>Delivery date<input type="date" name="DELIVERY_DATE" /></label>
+      </div>
+      <div class="filter-actions">
+        <button type="submit" class="btn">Apply filters</button>
+        <button type="button" id="clearPresaleFilters" class="btn secondary">Clear</button>
       </div>
     </form>
 

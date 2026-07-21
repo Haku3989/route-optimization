@@ -213,6 +213,50 @@ test("summarizePlan flattens routes to stops and shapes unassigned + windowViola
   assert.equal(vm.windowViolations[0].customerCode, "C2");
 });
 
+test("summarizePlan carries a stop's location/address through for map plotting", () => {
+  const vm = summarizePlan({
+    plan: {
+      routes: [
+        {
+          vehicleId: "V1",
+          stops: [
+            {
+              orderId: "C1",
+              customer: "Shop 1",
+              sequence: 1,
+              location: { lat: 13.7, lng: 100.5 },
+              address: "123 Main St",
+            },
+            { orderId: "C2", customer: "Shop 2", sequence: 2 }, // no location/address
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(vm.routes[0].stops[0].location, { lat: 13.7, lng: 100.5 });
+  assert.equal(vm.routes[0].stops[0].address, "123 Main St");
+  // Missing location/address are null, not undefined or thrown.
+  assert.equal(vm.routes[0].stops[1].location, null);
+  assert.equal(vm.routes[0].stops[1].address, null);
+  // The flattened stops list carries the same fields through.
+  assert.deepEqual(vm.stops[0].location, { lat: 13.7, lng: 100.5 });
+});
+
+test("summarizePlan drops a non-finite/malformed location instead of passing it through", () => {
+  const vm = summarizePlan({
+    plan: {
+      routes: [
+        {
+          vehicleId: "V1",
+          stops: [{ orderId: "C1", customer: "Shop 1", sequence: 1, location: { lat: "oops", lng: 100.5 } }],
+        },
+      ],
+    },
+  });
+  assert.equal(vm.routes[0].stops[0].location, null);
+});
+
 test("summarizePlan is null-safe for a plan with no routes", () => {
   const vm = summarizePlan({ plan: {}, unassigned: [], windowViolations: [] });
   assert.equal(vm.isMessage, false);

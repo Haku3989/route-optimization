@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Presale route preview on the dashboard.** A third "Presale" source
+  joins History/Sample plan on the dashboard toggle — same endpoint and
+  filters as the planner page's "3 · Presale planning" section
+  (`POST /api/presale/plan`), so an admin can preview an optimized presale
+  route (map, metrics, per-stop sidebar) without leaving the dashboard.
+  Each route draws from its own resolved depot (a store's own DC) rather
+  than one shared depot. Shaped with the shared, tested `summarizePlan`
+  (`planView.js`), extended to carry each stop's `location`/`address`
+  through for map plotting — additive, so the planner page's existing
+  table view is unaffected.
+
 ### Fixed
+
+- **A route with many stops could hang for 90+ seconds instead of
+  returning.** `LongdoRouter` (the real-routing provider) computes each
+  leg's distance with a real network call; a single unresponsive/rate-limited
+  request had no timeout, and — despite the log message implying otherwise —
+  every DISTINCT leg still re-attempted Longdo even after an earlier leg had
+  already failed. An 11-stop presale route (12 legs) took 90+ seconds in
+  production once Longdo started rate-limiting. Fixed with a per-request
+  timeout (`requestTimeoutMs`, default 8s, via `AbortController`) and a real
+  circuit breaker: after the FIRST failure, every later leg on that router
+  skips the network call entirely instead of paying its own failed-request
+  cost. The same request now completes in ~5s instead of timing out.
+- **Every driver saw every route.** The driver app's route provider
 
 - **Every driver saw every route.** The driver app's route provider
   (`getRouteForDriver` in `routes/driverRoutes.js`) flattened ALL vehicles'

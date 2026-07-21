@@ -98,3 +98,61 @@ test("LongdoRouter caches a fallback result so a repeated leg does not re-fetch"
     globalThis.fetch = originalFetch;
   }
 });
+
+// --- LongdoRouter: circuit breaker + timeout ---------------------------------
+// Regression: a route with many stops means many DISTINCT legs. Before this
+// fix, every distinct leg re-attempted Longdo even after an earlier leg had
+// already failed (e.g. a persistent rate limit) — an 11-stop presale route
+// took 90+ seconds in production because each of the 12 distinct legs paid
+// its own full failed-request cost. The circuit breaker means only the FIRST
+// leg ever calls the network once Longdo has failed once.
+
+test("LongdoRouter: after the first failure, DISTINCT later legs skip the network entirely", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return { ok: false, status: 429, text: async () => "" };
+  };
+
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K" });
+    // A route of 3 DISTINCT legs (A-B, B-C, C-D) — using genuinely different
+    // pairs (not a repeat of A-B) proves the breaker, not the leg cache.
+    const D = { lat: 13.9, lng: 100.6 };
+    const legs = await router.routeLegs([A, B, C, D], { speedKmh: 35 });
+
+    assert.equal(legs.length, 3);
+    for (const leg of legs) assert.ok(leg.distanceKm > 0);
+    assert.equal(calls, 1, "only the first (failing) leg should ever hit the network");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("LongdoRouter: a hanging request is treated as a failure after requestTimeoutMs, not forever", async () => {
+  const originalFetch = globalThis.fetch;
+  // Simulate an unresponsive endpoint: fetch never resolves on its own, only
+  // rejects when the AbortController's signal fires.
+  globalThis.fetch = (url, { signal } = {}) =>
+    new Promise((_, reject) => {
+      signal?.addEventListener("abort", () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        reject(err);
+      });
+    });
+
+  try {
+    const router = createRouter({ provider: "longdo", apiKey: "K", requestTimeoutMs: 30 });
+    const start = Date.now();
+    const legs = await router.routeLegs([A, B], { speedKmh: 35 });
+    const elapsedMs = Date.now() - start;
+
+    assert.equal(legs.length, 1);
+    assert.ok(legs[0].distanceKm > 0, "falls back to the estimator instead of hanging");
+    assert.ok(elapsedMs < 2000, `should resolve near requestTimeoutMs, took ${elapsedMs}ms`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

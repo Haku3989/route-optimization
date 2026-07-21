@@ -188,13 +188,19 @@ export function summarizeComparison(result) {
  * to one (see `data/dcList.js`), otherwise the plan-level depot. `null` when
  * the route carries no depot (older responses).
  *
+ * A stop's `location`/`address` are additive (present when the underlying
+ * order carried them) so a map view (e.g. the dashboard's Presale preview)
+ * can plot markers without re-deriving them; the flat table view on the
+ * planner page simply ignores the extra fields.
+ *
  * @param {object} result the parsed JSON body from /api/presale/plan
  * @returns {{ isMessage: boolean, message?: string,
  *   routes: Array<{ vehicleId: (string|null), fuelType: (string|null),
  *     distanceKm: number, co2Kg: number, load: (number|null),
  *     capacity: (number|null), depot: ({lat:number,lng:number}|null),
  *     stops: Array<{ sequence:(number|null), customer:(string|null),
- *       customerCode:(string|null), eta:(string|null), demand:(number|null) }> }>,
+ *       customerCode:(string|null), eta:(string|null), demand:(number|null),
+ *       location:({lat:number,lng:number}|null), address:(string|null) }> }>,
  *   stops: Array<object>,
  *   unassigned: Array<{ customerCode:(string|null), customer:(string|null), reason:(string|null) }>,
  *   windowViolations: Array<{ customerCode:(string|null), eta:(string|null),
@@ -238,6 +244,8 @@ export function summarizePlan(result) {
         customerCode: stop.orderId ?? null,
         eta: stop.eta ?? null,
         demand: stop.demand ?? null,
+        location: isLatLng(stop.location) ? { lat: stop.location.lat, lng: stop.location.lng } : null,
+        address: stop.address ?? null,
       })),
     }));
 
