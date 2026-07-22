@@ -593,3 +593,28 @@ test("buildPresalePlan: exactly the cap of routable orders is still planned", as
 
   assert.ok(result.plan, `expected a plan, got ${JSON.stringify(result)}`);
 });
+
+test("buildPresalePlan: a DELIVERY_DATE filter matches a row whose deliveryDate is a Date object built from LOCAL midnight (what pg returns for a DATE column), regardless of the server's UTC offset", async () => {
+  // node-postgres's DATE-column parser constructs the JS Date from LOCAL
+  // calendar components (new Date(year, month-1, day)), not UTC. At a
+  // positive UTC offset (e.g. Asia/Bangkok, UTC+7) that Date's
+  // .toISOString() falls on the PREVIOUS day — confirmed live: a stored
+  // '2026-07-22' round-tripped to '2026-07-21', so a same-day filter
+  // silently matched zero rows. Regression test for that fix.
+  const localMidnight = new Date(2026, 6, 22); // 2026-07-22, LOCAL midnight
+  const joined = [
+    {
+      presale: { id: "C1", customerCode: "C1", customerName: "Shop 1", deliveryDate: localMidnight, demand: 5 },
+      shop: { location: { lat: 13.72, lng: 100.53 }, coordSource: "master" },
+    },
+  ];
+
+  const result = await buildPresalePlan({
+    depot: DEPOT,
+    filters: { DELIVERY_DATE: "2026-07-22" },
+    deps: { repositories: fakeRepos(joined) },
+  });
+
+  assert.ok(result.plan, `expected a plan, got ${JSON.stringify(result)}`);
+  assert.equal(result.unassigned.length, 0);
+});
