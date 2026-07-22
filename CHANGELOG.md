@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-22
+
+### Added
+
+- **Mockup demo data seed** (`npm run db:seed:demo`): seeds a self-contained
+  demo dataset — 15 already-geocoded Bangkok stops (reused from the Sample
+  plan scenario) as `shops`/`history_entries`/`presale_entries` under one
+  recognizable store, plus a driver account assigned to it — so the delivery
+  on-time report, presale planner, and driver map all have realistic data to
+  demo without depending on the real dataset's geocoding coverage.
+  `time_visit` values are derived from the actual computed optimized ETA
+  (the same pipeline the report itself uses) for a correct 5 early / 5
+  on-time / 5 late split. Idempotent — safe to re-run.
+
+### Fixed
+
+- **Presale planning's `DELIVERY_DATE` filter silently excluded same-day
+  rows.** `presaleService.js`'s `toDateKey()` converted a stored `DATE`
+  column's `Date` object via `.toISOString()`, but `node-postgres` builds
+  that `Date` from LOCAL calendar components — at a positive UTC offset
+  (confirmed live at Bangkok's UTC+7) this rolls the date back by one day,
+  so a same-day filter matched zero rows. Mirrors the local-component fix
+  `historyService.js` already applies to the identical problem.
+
 ## [1.6.0] - 2026-07-22
 
 ### Added
@@ -359,7 +383,8 @@ Excel-driven route planning feature.
 
 - Added `exceljs`, `multer`, and `pg`; added `fast-check` as a dev dependency.
 
-[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/Haku3989/route-optimization/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/Haku3989/route-optimization/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Haku3989/route-optimization/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Haku3989/route-optimization/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Haku3989/route-optimization/compare/v1.3.0...v1.4.0
