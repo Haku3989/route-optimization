@@ -189,12 +189,24 @@ function lookupField(item, field) {
 /**
  * Normalise a date-ish value (Date, ISO string, "YYYY-MM-DD") to a `YYYY-MM-DD`
  * key for `DELIVERY_DATE` comparison, or `null` when it is missing/unparseable.
+ *
+ * A `Date` instance (what `pg` returns for a `DATE` column) is built from that
+ * column's LOCAL calendar components, not UTC — `node-postgres`'s DATE parser
+ * constructs it as local midnight. Reading it back via `.toISOString()` (UTC)
+ * therefore silently shifts the date by the server's UTC offset (confirmed
+ * live at UTC+7: a stored '2026-07-22' round-tripped to '2026-07-21', so a
+ * `DELIVERY_DATE` filter for today matched zero presale rows). Mirrors
+ * `historyService.js`'s own `toDateKey`, which already reads local
+ * components for exactly this reason.
  */
 function toDateKey(value) {
   if (value == null || value === "") return null;
   if (value instanceof Date) {
-    const t = value.getTime();
-    return Number.isNaN(t) ? null : value.toISOString().slice(0, 10);
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
   const str = String(value).trim();
   const parsed = new Date(str);
