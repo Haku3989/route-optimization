@@ -4,11 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Farmhouse Driver</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="driver.css" />
   </head>
   <body>
     <div class="app">
-      <header class="topbar">
+      <header class="topbar reveal" style="--i: 0">
         <div class="brand">
           <span class="dot"></span>
           <h1>Farmhouse Driver</h1>
@@ -17,7 +25,7 @@
       </header>
 
       <!-- Login view: the ONLY thing shown while unauthenticated (Req 10.3). -->
-      <section id="loginView" class="card">
+      <section id="loginView" class="card reveal" style="--i: 1">
         <h2>Driver sign in</h2>
         <form id="loginForm" autocomplete="off">
           <label for="username">Username</label>
@@ -48,11 +56,21 @@
       <!-- Route view: populated only after authentication. -->
       <main id="routeView" class="route-view" hidden>
         <div id="routeMeta" class="route-meta"></div>
+        <div id="driverMap" class="driver-map" hidden></div>
         <ol id="stopList" class="stop-list"></ol>
         <p id="routeMessage" class="message" hidden></p>
+
+        <button id="summaryBtn" type="button" class="link-btn summary-toggle">
+          Today's summary
+        </button>
+        <section id="summaryPanel" class="card summary-panel" hidden>
+          <h2>Today's summary</h2>
+          <div id="summaryContent"></div>
+        </section>
       </main>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="driver.js"></script>
   </body>
 </html>

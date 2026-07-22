@@ -1,0 +1,18 @@
+/* Hallmark · designed-as-app · Daily Delivery Report — status badges.
+ * Reuses styles.css/plan.css/database.css tokens and layout patterns
+ * (.panel, .metrics, .db-table-wrap, .db-panel-header). */
+
+.status-early {
+  color: var(--color-early);
+  font-weight: 600;
+}
+
+.status-on-time {
+  color: var(--color-on-time);
+  font-weight: 600;
+}
+
+.status-late {
+  color: var(--color-late);
+  font-weight: 600;
+}

@@ -124,6 +124,41 @@ test("summarizeComparison builds rows and computes savedKm/savedPct", () => {
   assert.equal(vm.savedPct, 20);
 });
 
+test("summarizeComparison passes through per-leg route geometry for both orderings, sanitized", () => {
+  const vm = summarizeComparison({
+    customers: [],
+    historicalDistanceKm: 0,
+    optimizedDistanceKm: 0,
+    historicalRouteGeometry: [
+      [{ lat: 13.7, lng: 100.5 }, { lat: 13.71, lng: 100.51 }],
+      null,
+    ],
+    optimizedRouteGeometry: [
+      [{ lat: 13.8, lng: 100.6, extra: "ignored" }],
+    ],
+  });
+
+  assert.deepEqual(vm.historicalRouteGeometry, [
+    [{ lat: 13.7, lng: 100.5 }, { lat: 13.71, lng: 100.51 }],
+    null,
+  ]);
+  assert.deepEqual(vm.optimizedRouteGeometry, [[{ lat: 13.8, lng: 100.6 }]]);
+});
+
+test("summarizeComparison: malformed/missing route geometry degrades to [] or per-leg null, never throws", () => {
+  const vmMissing = summarizeComparison({ customers: [], historicalDistanceKm: 0, optimizedDistanceKm: 0 });
+  assert.deepEqual(vmMissing.historicalRouteGeometry, []);
+  assert.deepEqual(vmMissing.optimizedRouteGeometry, []);
+
+  const vmMalformed = summarizeComparison({
+    customers: [],
+    historicalDistanceKm: 0,
+    optimizedDistanceKm: 0,
+    historicalRouteGeometry: ["not an array of points", [{ lat: "bad", lng: 1 }], []],
+  });
+  assert.deepEqual(vmMalformed.historicalRouteGeometry, [null, null, null]);
+});
+
 test("summarizeComparison treats a zero historical distance as 0% saved (no divide-by-zero)", () => {
   const vm = summarizeComparison({
     customers: [],
@@ -211,6 +246,78 @@ test("summarizePlan flattens routes to stops and shapes unassigned + windowViola
   assert.equal(vm.unassigned[0].customerCode, "C9");
   assert.equal(vm.windowViolations.length, 1);
   assert.equal(vm.windowViolations[0].customerCode, "C2");
+});
+
+test("summarizePlan carries a stop's location/address through for map plotting", () => {
+  const vm = summarizePlan({
+    plan: {
+      routes: [
+        {
+          vehicleId: "V1",
+          stops: [
+            {
+              orderId: "C1",
+              customer: "Shop 1",
+              sequence: 1,
+              location: { lat: 13.7, lng: 100.5 },
+              address: "123 Main St",
+            },
+            { orderId: "C2", customer: "Shop 2", sequence: 2 }, // no location/address
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(vm.routes[0].stops[0].location, { lat: 13.7, lng: 100.5 });
+  assert.equal(vm.routes[0].stops[0].address, "123 Main St");
+  // Missing location/address are null, not undefined or thrown.
+  assert.equal(vm.routes[0].stops[1].location, null);
+  assert.equal(vm.routes[0].stops[1].address, null);
+  // The flattened stops list carries the same fields through.
+  assert.deepEqual(vm.stops[0].location, { lat: 13.7, lng: 100.5 });
+});
+
+test("summarizePlan passes through a route's per-leg geometry, sanitized; missing field degrades to []", () => {
+  const vm = summarizePlan({
+    plan: {
+      routes: [
+        {
+          vehicleId: "V1",
+          stops: [{ orderId: "C1", customer: "Shop 1", sequence: 1 }],
+          legsGeometry: [
+            [{ lat: 13.7, lng: 100.5 }, { lat: 13.71, lng: 100.51 }],
+            null,
+          ],
+        },
+        {
+          vehicleId: "V2",
+          stops: [{ orderId: "C2", customer: "Shop 2", sequence: 1 }],
+          // no legsGeometry field at all (older/fake response shape)
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(vm.routes[0].legsGeometry, [
+    [{ lat: 13.7, lng: 100.5 }, { lat: 13.71, lng: 100.51 }],
+    null,
+  ]);
+  assert.deepEqual(vm.routes[1].legsGeometry, []);
+});
+
+test("summarizePlan drops a non-finite/malformed location instead of passing it through", () => {
+  const vm = summarizePlan({
+    plan: {
+      routes: [
+        {
+          vehicleId: "V1",
+          stops: [{ orderId: "C1", customer: "Shop 1", sequence: 1, location: { lat: "oops", lng: 100.5 } }],
+        },
+      ],
+    },
+  });
+  assert.equal(vm.routes[0].stops[0].location, null);
 });
 
 test("summarizePlan is null-safe for a plan with no routes", () => {

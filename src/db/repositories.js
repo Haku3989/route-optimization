@@ -18,6 +18,7 @@
  */
 
 import { query, withTransaction } from "./pool.js";
+import { buildGeocodeQuery } from "../routing/geocodeQuery.js";
 
 /**
  * Postgres caps a single statement at 65535 bind parameters (the wire protocol
@@ -466,6 +467,24 @@ export async function findDriverByUsername(username) {
 }
 
 /**
+ * Look up a driver by id — used to resolve an authenticated driver's OWN
+ * assigned store (`routeId`) so their route view can be scoped to just their
+ * vehicle within a presale plan, instead of every driver seeing every route.
+ *
+ * @param {number} id
+ * @returns {Promise<{ id: number, username: string, routeId: string|null } | null>}
+ */
+export async function findDriverById(id) {
+  const result = await query(
+    `SELECT id, username, route_id FROM drivers WHERE id = $1`,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { id: row.id, username: row.username, routeId: row.route_id ?? null };
+}
+
+/**
  * Persist an issued bearer token so the session survives restarts and is shared
  * across instances (Req 10.1). `created_at` defaults to `now()` in the schema.
  *
@@ -518,6 +537,79 @@ export async function findSession(token) {
  */
 export async function deleteSession(token) {
   await query(`DELETE FROM driver_sessions WHERE token = $1`, [token]);
+}
+
+// ---------------------------------------------------------------------------
+// Live driver-side delivery completion tracking — see schema.sql's
+// delivery_completions comment for why a completion snapshots its own ETA
+// rather than referencing the (volatile, in-memory) presale-plan cache.
+// ---------------------------------------------------------------------------
+
+/**
+ * Record (or update) a driver's completion of one stop. Idempotent via
+ * `UNIQUE (driver_id, customer_code, day)` — a double-tap/retry for the same
+ * customer on the same day updates the existing row rather than duplicating.
+ *
+ * @param {{ driverId:number, routeId:string, customerCode:string,
+ *   customerName?:string|null, scheduledEta?:Date|string|null,
+ *   completedAt:Date|string, deviationMin?:number|null,
+ *   category?:string|null, day:string }} record
+ * @returns {Promise<void>}
+ */
+export async function upsertDeliveryCompletion(record) {
+  await query(
+    `INSERT INTO delivery_completions
+       (driver_id, route_id, customer_code, customer_name, scheduled_eta,
+        completed_at, deviation_min, category, day)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (driver_id, customer_code, day) DO UPDATE SET
+       route_id = EXCLUDED.route_id,
+       customer_name = EXCLUDED.customer_name,
+       scheduled_eta = EXCLUDED.scheduled_eta,
+       completed_at = EXCLUDED.completed_at,
+       deviation_min = EXCLUDED.deviation_min,
+       category = EXCLUDED.category`,
+    [
+      record.driverId,
+      record.routeId,
+      record.customerCode,
+      record.customerName ?? null,
+      record.scheduledEta ?? null,
+      record.completedAt,
+      record.deviationMin ?? null,
+      record.category ?? null,
+      record.day,
+    ]
+  );
+}
+
+/**
+ * A driver's completions for one local day, ascending by completion time —
+ * feeds both the end-of-day summary and `getDriverRoute`'s "is this stop
+ * already completed" check (so a page refresh doesn't lose completion state).
+ *
+ * @param {number} driverId
+ * @param {string} day `"YYYY-MM-DD"`
+ * @returns {Promise<Array<{ customerCode:string, customerName:string|null,
+ *   scheduledEta:Date|null, completedAt:Date, deviationMin:number|null,
+ *   category:string|null }>>}
+ */
+export async function deliveryCompletionsForDriverDay(driverId, day) {
+  const result = await query(
+    `SELECT customer_code, customer_name, scheduled_eta, completed_at, deviation_min, category
+       FROM delivery_completions
+      WHERE driver_id = $1 AND day = $2
+      ORDER BY completed_at`,
+    [driverId, day]
+  );
+  return result.rows.map((row) => ({
+    customerCode: row.customer_code,
+    customerName: row.customer_name ?? null,
+    scheduledEta: row.scheduled_eta ?? null,
+    completedAt: row.completed_at,
+    deviationMin: row.deviation_min ?? null,
+    category: row.category ?? null,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +765,364 @@ export async function distinctHistoryFilterValues(activeFilters = {}) {
     result[key] = rows.rows.map((row) => row.value);
   }
   return result;
+}
+
+/**
+ * Overview counts of the uploaded History data, grouped by DC_Name and by
+ * StoreName: total visit rows and distinct customers per group, sorted
+ * descending by customer count (busiest first). Used by the dashboard to show
+ * a breakdown when no filter narrows the comparison down to a routable set,
+ * instead of just a bare "too many customers" message.
+ *
+ * `byStore`'s `dcName` uses `MIN(dc_name)` as a stand-in for "the" DC a store
+ * belongs to — safe here because a StoreName never spans more than one
+ * DC_Name in this data (see `data/dcList.js`'s DC-per-store design).
+ *
+ * @returns {Promise<{
+ *   byDc: Array<{ dcName:string, visits:number, customers:number }>,
+ *   byStore: Array<{ storeName:string, dcName:string|null, visits:number, customers:number }>
+ * }>}
+ */
+export async function historyOverview() {
+  const [byDcRows, byStoreRows] = await Promise.all([
+    query(`
+      SELECT dc_name AS dc_name,
+             COUNT(*)::int AS visits,
+             COUNT(DISTINCT customer_code)::int AS customers
+        FROM history_entries
+       WHERE dc_name IS NOT NULL AND dc_name <> ''
+       GROUP BY dc_name
+       ORDER BY customers DESC, dc_name
+    `),
+    query(`
+      SELECT store_name AS store_name,
+             MIN(dc_name) AS dc_name,
+             COUNT(*)::int AS visits,
+             COUNT(DISTINCT customer_code)::int AS customers
+        FROM history_entries
+       WHERE store_name IS NOT NULL AND store_name <> ''
+       GROUP BY store_name
+       ORDER BY customers DESC, store_name
+    `),
+  ]);
+
+  return {
+    byDc: byDcRows.rows.map((row) => ({
+      dcName: row.dc_name,
+      visits: row.visits,
+      customers: row.customers,
+    })),
+    byStore: byStoreRows.rows.map((row) => ({
+      storeName: row.store_name,
+      dcName: row.dc_name,
+      visits: row.visits,
+      customers: row.customers,
+    })),
+  };
+}
+
+/**
+ * Distinct History `invoice_date` values (as `YYYY-MM-DD` strings, ascending)
+ * that actually have data, scoped by whatever categorical filters are
+ * currently active — same cascading pattern as
+ * {@link distinctHistoryFilterValues}, but for the day-picker: routes are
+ * calculated per store PER DAY, so the filter only ever offers days that
+ * have data for the current DC/Store/etc. selection instead of an open date
+ * range that might match nothing.
+ *
+ * @param {{ dcName?:string, storeName?:string, storeGroup?:string,
+ *   storeArea?:string, customerType?:string }} [activeFilters]
+ * @returns {Promise<string[]>}
+ */
+export async function distinctHistoryDates(activeFilters = {}) {
+  const columnByKey = {
+    dcName: "dc_name",
+    storeName: "store_name",
+    storeGroup: "store_group",
+    storeArea: "store_area",
+    customerType: "customer_type",
+  };
+
+  const conditions = ["invoice_date IS NOT NULL"];
+  const params = [];
+  for (const [key, column] of Object.entries(columnByKey)) {
+    const value = activeFilters[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      params.push(value);
+      conditions.push(`${column} = $${params.length}`);
+    }
+  }
+
+  const result = await query(
+    `SELECT DISTINCT invoice_date::text AS date
+       FROM history_entries
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY date`,
+    params
+  );
+  return result.rows.map((row) => row.date);
+}
+
+// ---------------------------------------------------------------------------
+// Backfill geocoding — find customers/shops that still need coordinates.
+// ---------------------------------------------------------------------------
+
+/**
+ * Distinct customer_codes present in History but with NO Shop_Master row at
+ * all, paired with the best available geocode query and a representative
+ * customer name. Powers the backfill-geocoding job
+ * (`services/backfillService.js`), which persists a real shops row for each
+ * of these.
+ *
+ * The geocode query is built by `buildGeocodeQuery` (see `routing/geocodeQuery.js`)
+ * from one representative row's customerName/dcName/storeName together — NOT
+ * independently COALESCE'd per column, since customerName's cleaning combines
+ * with that SAME row's dcName for area context, and mixing columns from
+ * different history rows for the same customer could pair a cleaned name
+ * with an unrelated DC.
+ *
+ * @returns {Promise<Array<{ customerCode:string, geocodeQuery:string|null, customerName:string|null }>>}
+ */
+export async function findHistoryOnlyCustomers() {
+  const result = await query(`
+    SELECT DISTINCT ON (h.customer_code)
+           h.customer_code AS customer_code,
+           NULLIF(h.customer_name, '') AS customer_name,
+           NULLIF(h.dc_name, '') AS dc_name,
+           NULLIF(h.store_name, '') AS store_name
+      FROM history_entries h
+      LEFT JOIN shops s ON s.customer_code = h.customer_code
+     WHERE s.customer_code IS NULL
+     ORDER BY h.customer_code, h.id
+  `);
+  return result.rows.map((row) => ({
+    customerCode: row.customer_code,
+    geocodeQuery: buildGeocodeQuery({
+      customerName: row.customer_name,
+      dcName: row.dc_name,
+      storeName: row.store_name,
+    }),
+    customerName: row.customer_name,
+  }));
+}
+
+/**
+ * Existing shop rows whose coordinates never resolved (`lat IS NULL`), with a
+ * FRESHLY rebuilt geocode query (via `buildGeocodeQuery`, rejoined against
+ * `history_entries` for that customer's current customerName/dcName/storeName)
+ * plus their other fields so a backfill UPDATE can carry them through
+ * unchanged (only `lat`/`lng`/`coord_source` should change here).
+ *
+ * Rebuilding instead of reusing the persisted `shop_name` matters: `shop_name`
+ * on an unresolved row is whatever query an EARLIER backfill run attempted
+ * (see `services/backfillService.js`) — if the query-building strategy has
+ * since changed (e.g. this session's switch to CustomerName + DC area), a
+ * retry that just reused the old stale value would keep re-attempting a query
+ * we already know changed for a reason, never actually trying the new one. A
+ * shop with no matching history row left (e.g. its customer's history rows
+ * were removed) falls back to the persisted `shop_name`.
+ *
+ * @returns {Promise<Array<{ customerCode:string, geocodeQuery:string|null,
+ *   shopName:string|null, serviceTimeMin:number|null, openTime:string|null, closeTime:string|null }>>}
+ */
+export async function findUnresolvedShops() {
+  const result = await query(`
+    SELECT s.customer_code AS customer_code,
+           NULLIF(s.shop_name, '') AS shop_name,
+           s.service_time_min, s.open_time, s.close_time,
+           h.customer_name AS customer_name, h.dc_name AS dc_name, h.store_name AS store_name
+      FROM shops s
+      LEFT JOIN LATERAL (
+        SELECT customer_name, dc_name, store_name
+          FROM history_entries
+         WHERE customer_code = s.customer_code
+         ORDER BY id
+         LIMIT 1
+      ) h ON true
+     WHERE s.lat IS NULL
+     ORDER BY s.customer_code
+  `);
+  return result.rows.map((row) => ({
+    customerCode: row.customer_code,
+    geocodeQuery:
+      buildGeocodeQuery({ customerName: row.customer_name, dcName: row.dc_name, storeName: row.store_name }) ??
+      row.shop_name,
+    shopName: row.customer_name || row.shop_name,
+    serviceTimeMin: row.service_time_min,
+    openTime: row.open_time,
+    closeTime: row.close_time,
+  }));
+}
+
+/**
+ * Whether all three workbook types have at least one row — used to decide
+ * whether to trigger the backfill-geocoding job after an upload (Requirement:
+ * auto-process once all 3 files are in, no filter/manual step needed).
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function hasAllWorkbookTypes() {
+  const result = await query(`
+    SELECT
+      EXISTS (SELECT 1 FROM shops) AS has_shops,
+      EXISTS (SELECT 1 FROM history_entries) AS has_history,
+      EXISTS (SELECT 1 FROM presale_entries) AS has_presale
+  `);
+  const row = result.rows[0];
+  return Boolean(row.has_shops && row.has_history && row.has_presale);
+}
+
+// ---------------------------------------------------------------------------
+// Database viewer — aggregate summary + paginated raw-row browsing over the
+// three uploaded workbooks' tables, for the admin "Database" page.
+// ---------------------------------------------------------------------------
+
+/** Clamp a raw page/pageSize pair to sane, bounded values. */
+function normalizePaging(page, pageSize) {
+  const p = Number.isInteger(page) && page > 0 ? page : 1;
+  const size = Number.isInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 200) : 50;
+  return { page: p, pageSize: size, offset: (p - 1) * size };
+}
+
+/**
+ * Aggregate counts across all three tables, plus a shops resolution
+ * breakdown (resolved = has lat/lng, regardless of source). Powers the
+ * database viewer page's summary panel.
+ *
+ * @returns {Promise<{
+ *   shops: { total:number, resolved:number, unresolved:number },
+ *   history: { total:number, distinctCustomers:number },
+ *   presale: { total:number, distinctCustomers:number },
+ * }>}
+ */
+export async function databaseSummary() {
+  const [shopsRow, historyRow, presaleRow] = await Promise.all([
+    query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE lat IS NOT NULL)::int AS resolved
+        FROM shops
+    `),
+    query(`
+      SELECT COUNT(*)::int AS total, COUNT(DISTINCT customer_code)::int AS distinct_customers
+        FROM history_entries
+    `),
+    query(`
+      SELECT COUNT(*)::int AS total, COUNT(DISTINCT customer_code)::int AS distinct_customers
+        FROM presale_entries
+    `),
+  ]);
+
+  const shops = shopsRow.rows[0];
+  const history = historyRow.rows[0];
+  const presale = presaleRow.rows[0];
+
+  return {
+    shops: { total: shops.total, resolved: shops.resolved, unresolved: shops.total - shops.resolved },
+    history: { total: history.total, distinctCustomers: history.distinct_customers },
+    presale: { total: presale.total, distinctCustomers: presale.distinct_customers },
+  };
+}
+
+/**
+ * A page of raw `shops` rows, newest-code-first is meaningless here so
+ * ordered by customer_code for a stable, predictable page sequence.
+ * @returns {Promise<{ rows:Array<object>, total:number, page:number, pageSize:number }>}
+ */
+export async function listShopsPage({ page, pageSize } = {}) {
+  const p = normalizePaging(page, pageSize);
+  const [rows, count] = await Promise.all([
+    query(
+      `SELECT customer_code, shop_name, lat, lng, coord_source,
+              service_time_min, open_time, close_time
+         FROM shops
+        ORDER BY customer_code
+        LIMIT $1 OFFSET $2`,
+      [p.pageSize, p.offset]
+    ),
+    query(`SELECT COUNT(*)::int AS n FROM shops`),
+  ]);
+  return {
+    rows: rows.rows.map((r) => ({
+      customerCode: r.customer_code,
+      shopName: r.shop_name,
+      lat: r.lat,
+      lng: r.lng,
+      coordSource: r.coord_source,
+      serviceTimeMin: r.service_time_min,
+      openTime: r.open_time,
+      closeTime: r.close_time,
+    })),
+    total: count.rows[0].n,
+    page: p.page,
+    pageSize: p.pageSize,
+  };
+}
+
+/** A page of raw `history_entries` rows, most recent id first. */
+export async function listHistoryPage({ page, pageSize } = {}) {
+  const p = normalizePaging(page, pageSize);
+  const [rows, count] = await Promise.all([
+    query(
+      `SELECT id, customer_code, customer_name, dc_name, store_name, invoice_date,
+              time_visit, store_group, store_area, customer_type, quantity
+         FROM history_entries
+        ORDER BY id DESC
+        LIMIT $1 OFFSET $2`,
+      [p.pageSize, p.offset]
+    ),
+    query(`SELECT COUNT(*)::int AS n FROM history_entries`),
+  ]);
+  return {
+    rows: rows.rows.map((r) => ({
+      id: r.id,
+      customerCode: r.customer_code,
+      customerName: r.customer_name,
+      dcName: r.dc_name,
+      storeName: r.store_name,
+      invoiceDate: r.invoice_date,
+      timeVisit: r.time_visit,
+      storeGroup: r.store_group,
+      storeArea: r.store_area,
+      customerType: r.customer_type,
+      quantity: r.quantity,
+    })),
+    total: count.rows[0].n,
+    page: p.page,
+    pageSize: p.pageSize,
+  };
+}
+
+/** A page of raw `presale_entries` rows, most recent id first. */
+export async function listPresalePage({ page, pageSize } = {}) {
+  const p = normalizePaging(page, pageSize);
+  const [rows, count] = await Promise.all([
+    query(
+      `SELECT id, customer_code, customer_name, delivery_date, demand,
+              dc_name, store_name, store_group, store_area, customer_type
+         FROM presale_entries
+        ORDER BY id DESC
+        LIMIT $1 OFFSET $2`,
+      [p.pageSize, p.offset]
+    ),
+    query(`SELECT COUNT(*)::int AS n FROM presale_entries`),
+  ]);
+  return {
+    rows: rows.rows.map((r) => ({
+      id: r.id,
+      customerCode: r.customer_code,
+      customerName: r.customer_name,
+      deliveryDate: r.delivery_date,
+      demand: r.demand,
+      dcName: r.dc_name,
+      storeName: r.store_name,
+      storeGroup: r.store_group,
+      storeArea: r.store_area,
+      customerType: r.customer_type,
+    })),
+    total: count.rows[0].n,
+    page: p.page,
+    pageSize: p.pageSize,
+  };
 }
 
 // ---------------------------------------------------------------------------

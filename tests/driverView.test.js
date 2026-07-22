@@ -113,6 +113,21 @@ test("renderStopList: marks the current stop and orders an unsorted input (Req 8
   );
 });
 
+test("renderStopList: carries a persisted completion's category/deviationMin through, null when not completed", () => {
+  const route = {
+    currentSequence: 2,
+    stops: [
+      { sequence: 1, customer: "A", eta: "t1", completed: true, category: "late", deviationMin: 20 },
+      { sequence: 2, customer: "B", eta: "t2" },
+    ],
+  };
+  const rendered = renderStopList(route);
+  assert.equal(rendered[0].category, "late");
+  assert.equal(rendered[0].deviationMin, 20);
+  assert.equal(rendered[1].category, null);
+  assert.equal(rendered[1].deviationMin, null);
+});
+
 // ---------------------------------------------------------------------------
 // Property 19 (task 14.3) — Validates: Requirements 8.4
 // ---------------------------------------------------------------------------

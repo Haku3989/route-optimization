@@ -15,6 +15,7 @@
 
 import {
   renderRoute,
+  renderStopList,
   advanceStop,
   EMPTY_MESSAGE,
   FALLBACK_MESSAGE,
@@ -36,9 +37,14 @@ const passwordEl = document.getElementById("password");
 
 const routeView = document.getElementById("routeView");
 const routeMeta = document.getElementById("routeMeta");
+const driverMapEl = document.getElementById("driverMap");
 const stopList = document.getElementById("stopList");
 const routeMessage = document.getElementById("routeMessage");
 const logoutBtn = document.getElementById("logoutBtn");
+
+const summaryBtn = document.getElementById("summaryBtn");
+const summaryPanel = document.getElementById("summaryPanel");
+const summaryContent = document.getElementById("summaryContent");
 
 // --- Render operations injected into the pure renderRoute() ----------------
 const ops = {
@@ -84,10 +90,29 @@ function mapsLinkHtml(mapsUrl) {
   return `<a class="maps-link" href="${mapsUrl}" target="_blank" rel="noopener">Open in Maps</a>`;
 }
 
+/** Status badge for a completed stop's early/on-time/late category, or `null`
+ * when there's nothing to show yet (not completed, or no ETA to compare against). */
+function categoryBadge(category, deviationMin) {
+  if (!category) return null;
+  const span = document.createElement("span");
+  if (category === "early") {
+    span.className = "status-early";
+    span.textContent = Number.isFinite(deviationMin) ? `${Math.abs(deviationMin)} min early` : "Early";
+  } else if (category === "late") {
+    span.className = "status-late";
+    span.textContent = Number.isFinite(deviationMin) ? `${deviationMin} min late` : "Late";
+  } else {
+    span.className = "status-on-time";
+    span.textContent = "On time";
+  }
+  return span;
+}
+
 /** Build a single stop <li> from a view-model produced by renderStopList(). */
 function buildStopEl(vm) {
   const li = document.createElement("li");
   li.className = "stop";
+  if (vm.customerCode != null) li.dataset.customerCode = vm.customerCode;
   if (vm.isCurrent) li.classList.add("current");
   if (vm.completed) li.classList.add("completed");
 
@@ -117,6 +142,12 @@ function buildStopEl(vm) {
   eta.textContent = `ETA ${fmtTime(vm.eta)}`;
   li.appendChild(eta);
 
+  const badge = categoryBadge(vm.category, vm.deviationMin);
+  if (badge) {
+    badge.classList.add("status-badge");
+    li.appendChild(badge);
+  }
+
   const actions = document.createElement("div");
   actions.className = "stop-actions";
 
@@ -135,7 +166,7 @@ function buildStopEl(vm) {
     btn.type = "button";
     btn.className = "complete-btn";
     btn.textContent = "Mark complete";
-    btn.addEventListener("click", () => onComplete(vm.sequence));
+    btn.addEventListener("click", () => onComplete(vm.sequence, vm.customerCode, btn));
     actions.appendChild(btn);
   }
 
@@ -149,12 +180,157 @@ function render(route) {
   const stopCount = route && Array.isArray(route.stops) ? route.stops.length : 0;
   routeMeta.textContent = stopCount === 0 ? "" : `${stopCount} stops on your route`;
   renderRoute(route, ops);
+  renderMap(route);
 }
 
-/** Advance the current stop after the driver marks it complete (Req 8.3). */
-function onComplete(sequence) {
-  currentRoute = advanceStop(currentRoute, sequence);
-  render(currentRoute);
+// --- Route preview map -------------------------------------------------------
+// Same visual language as the dashboard map (public/app.js): numbered
+// markers, real road-following lines per leg with a straight-line fallback.
+// Difference: a marker's info shows on TAP (Leaflet's default click trigger
+// for bindPopup), not hover — there's no hover state on a phone.
+
+let driverMap = null;
+let driverLayerGroup = null;
+const ROUTE_COLOR = getComputedStyle(document.documentElement)
+  .getPropertyValue("--color-accent")
+  .trim();
+const CURRENT_STOP_COLOR = getComputedStyle(document.documentElement)
+  .getPropertyValue("--color-gold")
+  .trim();
+
+function ensureMap() {
+  if (driverMap) return;
+  driverMap = L.map("driverMap", { attributionControl: false }).setView([13.7563, 100.5018], 11);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(driverMap);
+  driverLayerGroup = L.layerGroup().addTo(driverMap);
+}
+
+function numberedIcon(number, color) {
+  return L.divIcon({
+    className: "route-marker",
+    html: `<span class="route-marker-dot" style="background:${color}">${number}</span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
+/** Popup content built as DOM nodes (never an HTML string) so a customer
+ * name can never be interpreted as markup. */
+function stopPopupContent(vm) {
+  const wrap = document.createElement("div");
+  const name = document.createElement("b");
+  name.textContent = vm.customer == null ? "(unnamed)" : vm.customer;
+  wrap.appendChild(name);
+  wrap.appendChild(document.createElement("br"));
+  wrap.appendChild(document.createTextNode(`ETA ${fmtTime(vm.eta)}`));
+  return wrap;
+}
+
+/** One polyline per leg, using that leg's real geometry when available and
+ * falling back to a straight line otherwise — mirrors app.js's drawRouteLine. */
+function drawRouteLine(points, legsGeometry, style) {
+  for (let i = 0; i < points.length - 1; i++) {
+    const legPoints = legsGeometry?.[i];
+    const line =
+      Array.isArray(legPoints) && legPoints.length > 0
+        ? legPoints.map((p) => [p.lat, p.lng])
+        : [points[i], points[i + 1]];
+    L.polyline(line, style).addTo(driverLayerGroup);
+  }
+}
+
+function usableLocation(loc) {
+  return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
+}
+
+/** Draw the driver's own route: depot, numbered stop markers (tap for info),
+ * and the connecting line. Hidden entirely when there are no stops. */
+function renderMap(route) {
+  const stopCount = route && Array.isArray(route.stops) ? route.stops.length : 0;
+  driverMapEl.hidden = stopCount === 0;
+  if (stopCount === 0) return;
+
+  ensureMap();
+  driverLayerGroup.clearLayers();
+
+  const bounds = [];
+  const line = [];
+  const depot = route.depot;
+  if (usableLocation(depot)) {
+    L.marker([depot.lat, depot.lng], { title: "Depot" }).addTo(driverLayerGroup);
+    bounds.push([depot.lat, depot.lng]);
+    line.push([depot.lat, depot.lng]);
+  }
+
+  for (const vm of renderStopList(route)) {
+    if (!usableLocation(vm.location)) continue;
+    const { lat, lng } = vm.location;
+    bounds.push([lat, lng]);
+    line.push([lat, lng]);
+    L.marker([lat, lng], { icon: numberedIcon(vm.sequence, vm.isCurrent ? CURRENT_STOP_COLOR : ROUTE_COLOR) })
+      .bindPopup(stopPopupContent(vm))
+      .addTo(driverLayerGroup);
+  }
+
+  if (usableLocation(depot)) line.push([depot.lat, depot.lng]);
+
+  drawRouteLine(line, route.routeGeometry, { color: ROUTE_COLOR, weight: 4, opacity: 0.85 });
+
+  // The map may have just been un-hidden — Leaflet needs a nudge to size
+  // itself correctly after its container's dimensions become non-zero.
+  driverMap.invalidateSize();
+  if (bounds.length > 1) driverMap.fitBounds(bounds, { padding: [24, 24] });
+  else if (bounds.length === 1) driverMap.setView(bounds[0], 14);
+}
+
+/**
+ * Mark a stop complete: persist it server-side first (so the early/on-time/
+ * late status is real and survives a refresh — see `driverRoutes.js`'s
+ * `POST /complete`), then advance the route optimistically via the pure
+ * `advanceStop` on success. The button is disabled for the round-trip so a
+ * double-tap can't fire two requests.
+ */
+async function onComplete(sequence, customerCode, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/driver/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ customerCode }),
+    });
+    if (res.status === 401) {
+      clearToken();
+      showLogin();
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok || data.message) {
+      // Stop no longer in the current route (e.g. plan was rebuilt) or a
+      // server error — reload the real route rather than trusting stale local state.
+      await loadRoute();
+      return;
+    }
+    // Stamp the completed stop's real category/deviation onto the current
+    // route before advancing, so the badge shows immediately.
+    currentRoute = {
+      ...currentRoute,
+      stops: currentRoute.stops.map((s) =>
+        s.sequence === sequence ? { ...s, category: data.category, deviationMin: data.deviationMin } : s
+      ),
+    };
+    currentRoute = advanceStop(currentRoute, sequence);
+    render(currentRoute);
+    // Pulse ONLY the badge that just appeared (not the whole list) — a single
+    // "something just happened" moment, not scattered motion across every
+    // already-completed stop from a previous session.
+    const justCompletedStop = stopList.querySelector(`[data-customer-code="${CSS.escape(customerCode)}"] .status-badge`);
+    if (justCompletedStop) justCompletedStop.classList.add("pulse-once");
+  } catch (_) {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // --- View switching ---------------------------------------------------------
@@ -167,6 +343,8 @@ function showLogin() {
   routeMessage.hidden = true;
   routeMessage.textContent = "";
   routeMeta.textContent = "";
+  summaryPanel.hidden = true;
+  summaryContent.innerHTML = "";
 }
 
 function showRouteView() {
@@ -273,10 +451,66 @@ function logout() {
   showLogin();
 }
 
+// --- Today's summary ---------------------------------------------------------
+function metric(label, value) {
+  const wrap = document.createElement("div");
+  wrap.className = "summary-metric";
+  const v = document.createElement("div");
+  v.className = "summary-value";
+  v.textContent = String(value);
+  const l = document.createElement("div");
+  l.className = "summary-label";
+  l.textContent = label;
+  wrap.appendChild(v);
+  wrap.appendChild(l);
+  return wrap;
+}
+
+async function loadSummary() {
+  summaryContent.innerHTML = "";
+  try {
+    const res = await fetch("/api/driver/summary", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      clearToken();
+      showLogin();
+      return;
+    }
+    if (!res.ok) throw new Error(`summary request failed: ${res.status}`);
+    const data = await res.json();
+    if (data.completed === 0) {
+      const p = document.createElement("p");
+      p.className = "message";
+      p.textContent = "No deliveries completed yet today.";
+      summaryContent.appendChild(p);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    frag.appendChild(metric("Completed", data.completed));
+    frag.appendChild(metric("On time", `${data.onTimePct}%`));
+    frag.appendChild(metric("Early", data.early));
+    frag.appendChild(metric("Late", data.late));
+    summaryContent.appendChild(frag);
+  } catch (_) {
+    const p = document.createElement("p");
+    p.className = "message";
+    p.textContent = "Could not load today's summary.";
+    summaryContent.appendChild(p);
+  }
+}
+
+function toggleSummary() {
+  const willShow = summaryPanel.hidden;
+  summaryPanel.hidden = !willShow;
+  if (willShow) loadSummary();
+}
+
 // --- Boot -------------------------------------------------------------------
 function init() {
   loginForm.addEventListener("submit", handleLogin);
   logoutBtn.addEventListener("click", logout);
+  summaryBtn.addEventListener("click", toggleSummary);
 
   const stored = getStoredToken();
   if (stored) {

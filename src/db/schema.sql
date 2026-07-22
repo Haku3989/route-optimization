@@ -89,6 +89,27 @@ CREATE TABLE IF NOT EXISTS driver_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_driver_id ON driver_sessions (driver_id);
 
+-- Live driver-side completion tracking (early/on-time/late feedback per stop,
+-- plus an end-of-day summary). A completion snapshots the ETA it was compared
+-- against at write time, since the in-memory presale-plan cache it comes from
+-- (`presaleRoutes.js`'s getLatestPresalePlan) can be overwritten by any later
+-- plan build. UNIQUE(driver_id, customer_code, day) makes "mark complete"
+-- idempotent — a double-tap/retry upserts the same row instead of duplicating.
+CREATE TABLE IF NOT EXISTS delivery_completions (
+  id             BIGSERIAL PRIMARY KEY,
+  driver_id      BIGINT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+  route_id       TEXT NOT NULL,        -- snapshot of the driver's route_id/vehicleId at completion time
+  customer_code  TEXT NOT NULL,
+  customer_name  TEXT,
+  scheduled_eta  TIMESTAMPTZ,          -- snapshot of stop.eta; NULL if the plan had none for this stop
+  completed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deviation_min  INTEGER,              -- (completed_at - scheduled_eta) in minutes; NULL if no scheduled_eta
+  category       TEXT,                 -- 'early' | 'on_time' | 'late' | NULL (mirrors classifyDeviation)
+  day            TEXT NOT NULL,        -- 'YYYY-MM-DD', local day key of completed_at, for end-of-day queries
+  UNIQUE (driver_id, customer_code, day)
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_completions_driver_day ON delivery_completions (driver_id, day);
+
 -- Admin auth (admin portal login). Mirrors the driver auth tables but has no
 -- route assignment; an admin authenticates to reach the planner/dashboard.
 CREATE TABLE IF NOT EXISTS admins (

@@ -1,9 +1,12 @@
-/* Farmhouse Route Planner — input page.
+/* Hallmark · genre: editorial · macrostructure: none (app page) · theme:
+ * custom (Farmhouse-anchored) · design-system: design.md · designed-as-app
  *
- * Reuses the shared Farmhouse design tokens and .topbar / .btn / .hint styles
- * from styles.css; this file only adds the planner-specific layout (three
- * stacked frosted-glass panels), the filter grids, tables and result/log
- * styling. Desktop-first, reflowing to a single column on narrow screens.
+ * Farmhouse Route Planner — input page.
+ *
+ * Reuses the shared design tokens and .topbar / .btn / .hint styles from
+ * styles.css; this file adds the planner-specific layout (stacked
+ * hairline-bordered panels), filter grids, tables and result/log styling.
+ * Desktop-first, reflowing to a single column on narrow screens.
  */
 
 .plan-layout {
@@ -15,24 +18,36 @@
 }
 
 .panel {
-  background: var(--glass);
+  background: var(--surface);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 18px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-panel);
   padding: 18px 20px;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--surface-shadow-sm);
+  /* Entrance replays whenever a panel is (re)displayed — page load, and every
+   * time a hidden results panel (e.g. deliveryReport's summary/detail) un-hides
+   * after a fresh compute, since a display:none->block toggle restarts a CSS
+   * animation. Staggered by DOM position among sibling panels. */
+  animation: hm-reveal var(--dur-long) var(--ease-out) both;
 }
 
+.panel:nth-of-type(1) { animation-delay: 0ms; }
+.panel:nth-of-type(2) { animation-delay: 60ms; }
+.panel:nth-of-type(3) { animation-delay: 120ms; }
+.panel:nth-of-type(n+4) { animation-delay: 180ms; }
+
 .panel h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
   margin: 0 0 6px;
-  font-size: 18px;
-  color: var(--text);
+  font-size: 19px;
+  color: var(--color-ink);
 }
 
 .panel h3 {
   font-size: 14px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   margin: 18px 0 8px;
 }
 
@@ -45,7 +60,7 @@
 
 label {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -56,31 +71,32 @@ input,
 select {
   min-height: 42px;
   font-size: 15px;
+  font-family: var(--font-body);
   padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-strong);
-  color: var(--text);
+  border-radius: var(--radius-input);
+  border: 1px solid var(--color-rule);
+  background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--color-ink);
   width: 100%;
+  transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
 
 input:focus,
 select:focus {
-  outline: 2px solid var(--barn);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-wash);
 }
 
 input[type="file"] {
   padding: 8px;
 }
 
-/* Glass-themed dropdown: frosted-glass closed control with a custom chevron
- * (native <select> popups are rendered by the OS/browser and cannot take a
- * backdrop-filter blur themselves, so the open option list gets warm-toned
- * colors instead — the closest a native select can get to the glass theme). */
+/* Paper-themed dropdown: bordered closed control with a custom chevron
+ * (native <select> popups are rendered by the OS/browser). */
 select {
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
   padding-right: 32px;
   appearance: none;
   -webkit-appearance: none;
@@ -89,21 +105,16 @@ select {
   background-position: right 12px center;
   cursor: pointer;
   color-scheme: light;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 select:hover {
-  background-color: var(--glass);
-  border-color: var(--gold);
-}
-
-select:focus {
-  box-shadow: 0 0 0 3px rgba(194, 58, 36, 0.15);
+  background-color: var(--surface-2);
+  border-color: var(--color-gold);
 }
 
 select option {
-  background: var(--wheat);
-  color: var(--text);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
 }
 
 .grid-filters {
@@ -120,27 +131,27 @@ select option {
 
 .result {
   margin-top: 16px;
-  border-top: 1px solid rgba(97, 58, 30, 0.15);
+  border-top: 1px solid var(--color-rule);
   padding-top: 14px;
 }
 
 .result .error-box {
-  background: rgba(192, 57, 43, 0.12);
-  border: 1px solid rgba(192, 57, 43, 0.4);
-  color: var(--danger);
-  border-radius: 10px;
+  background: var(--color-late-wash);
+  border: 1px solid var(--color-late-wash);
+  color: var(--color-late);
+  border-radius: var(--radius-input);
   padding: 12px 14px;
   font-size: 14px;
 }
 
 .result .message-box {
-  background: var(--glass-strong);
+  background: var(--surface);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-input);
   padding: 14px 16px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-size: 14px;
 }
 
@@ -159,17 +170,18 @@ select option {
 
 .summary-line .stat .k {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-ink-2);
 }
 
 .summary-line .stat .v {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--color-ink);
 }
 
 .summary-line .stat .v.saved {
-  color: var(--sage);
+  color: var(--color-on-time);
 }
 
 table.data {
@@ -182,17 +194,21 @@ table.data th,
 table.data td {
   text-align: left;
   padding: 7px 10px;
-  border-bottom: 1px solid rgba(97, 58, 30, 0.14);
+  border-bottom: 1px solid var(--color-rule);
 }
 
 table.data th {
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-weight: 600;
   white-space: nowrap;
 }
 
+table.data tbody tr {
+  transition: background var(--dur-short) var(--ease-out);
+}
+
 table.data tbody tr:hover {
-  background: rgba(97, 58, 30, 0.06);
+  background: var(--surface-2);
 }
 
 .chips {
@@ -205,16 +221,20 @@ table.data tbody tr:hover {
 .chip {
   font-size: 12px;
   padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-border);
-  color: var(--muted);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--color-rule);
+  color: var(--color-ink-2);
 }
 
 .route-block {
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
+  background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-card);
   padding: 12px 14px;
   margin-bottom: 12px;
 }
@@ -230,19 +250,20 @@ table.data tbody tr:hover {
 
 .route-block .route-title .meta {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-ink-2);
   font-weight: 400;
 }
 
 .section-title {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 15px;
   font-weight: 600;
   margin: 16px 0 8px;
-  color: var(--text);
+  color: var(--color-ink);
 }
 
 .warn-title {
-  color: var(--barn);
+  color: var(--color-accent);
 }
 
 /* Collapsible upload-warnings section */
@@ -283,8 +304,10 @@ table.data tbody tr:hover {
 
 .upload-log li {
   font-size: 13px;
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--color-rule);
   border-radius: 8px;
   padding: 8px 10px;
 }
@@ -296,9 +319,65 @@ table.data tbody tr:hover {
 }
 
 .upload-log .ok {
-  color: var(--sage);
+  color: var(--color-on-time);
 }
 
 .upload-log .fail {
-  color: var(--danger);
+  color: var(--color-late);
+}
+
+/* Background backfill-geocoding status (real-time, polled) */
+.backfill-status {
+  margin: 14px 0;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-input);
+}
+
+.backfill-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.backfill-status-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-ink);
+}
+
+.backfill-status-label.done {
+  color: var(--color-on-time);
+}
+
+.backfill-status-label.error {
+  color: var(--color-late);
+}
+
+.backfill-progress-track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-rule);
+  overflow: hidden;
+}
+
+.backfill-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--color-accent);
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-short) var(--ease-out);
+}
+
+.backfill-status.done .backfill-progress-fill {
+  background: var(--color-on-time);
+}
+
+.backfill-status.error .backfill-progress-fill {
+  background: var(--color-late);
 }

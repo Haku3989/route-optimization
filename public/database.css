@@ -1,0 +1,38 @@
+/* Farmhouse Database viewer — summary + paginated raw-row browser.
+ * Reuses styles.css tokens and plan.css's .panel/table.data patterns.
+ */
+
+.db-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.db-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.db-pager .btn.small {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.db-table-wrap {
+  overflow-x: auto;
+}
+
+.resolved-yes {
+  color: var(--sage);
+  font-weight: 600;
+}
+
+.resolved-no {
+  color: var(--danger);
+  font-weight: 600;
+}

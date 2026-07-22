@@ -98,10 +98,15 @@ export function shouldShowEmptyMessage(plan) {
  * name, ETA, a maps URL (or `null`), and fallback nav text so the DOM layer can
  * render without any further ordering logic. Pure and non-mutating.
  *
+ * `category`/`deviationMin` are additive: present once a stop has been marked
+ * complete (persisted server-side, see `driverService.completeStop`) so the
+ * badge survives a page refresh — `null` for a not-yet-completed stop.
+ *
  * @param {{ stops?: Array<object>, currentSequence?: number|null }} route
- * @returns {Array<{ sequence:number, customer:(string|null), eta:(string|null),
+ * @returns {Array<{ sequence:number, customerCode:(string|null), customer:(string|null), eta:(string|null),
  *   completed:boolean, isCurrent:boolean, mapsUrl:(string|null), fallbackText:string,
- *   location:(object|null), address:(string|null) }>}
+ *   location:(object|null), address:(string|null), category:(string|null),
+ *   deviationMin:(number|null) }>}
  */
 export function renderStopList(route) {
   const stops = route && Array.isArray(route.stops) ? route.stops : [];
@@ -115,6 +120,7 @@ export function renderStopList(route) {
       const mapsUrl = buildMapsUrl(stop);
       return {
         sequence: stop.sequence,
+        customerCode: stop.customerCode ?? null,
         customer: stop.customer ?? null,
         eta: stop.eta ?? null,
         completed: Boolean(stop.completed),
@@ -123,6 +129,8 @@ export function renderStopList(route) {
         fallbackText: stopNavFallbackText(stop),
         location: stop.location ?? null,
         address: stop.address ?? null,
+        category: stop.category ?? null,
+        deviationMin: Number.isFinite(stop.deviationMin) ? stop.deviationMin : null,
       };
     });
 }

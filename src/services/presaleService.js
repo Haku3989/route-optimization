@@ -50,6 +50,7 @@
  */
 
 import { planDeliveries } from "./routeService.js";
+import { defaultDepartAt } from "./etaService.js";
 import { depot as sampleDepot, vehicles as sampleVehicles } from "../data/sampleData.js";
 import { resolveDcByName } from "../data/dcList.js";
 import * as realRepositories from "../db/repositories.js";
@@ -278,7 +279,9 @@ function isWindowViolation(etaDate, openTime, closeTime) {
  * @param {Array} [input.vehicles]   when omitted, one vehicle is built per
  *   distinct store assigned to a driver in the admin console (see
  *   {@link resolveFleet}); falls back to the sample fleet when none exist
- * @param {Date} [input.departAt]
+ * @param {Date} [input.departAt] defaults to 04:00 on the filter's
+ *   `DELIVERY_DATE` (see `etaService.defaultDepartAt`), or today when the
+ *   filter has none
  * @param {{ repositories?: object, router?: object }} [input.deps]
  *   Injectable dependencies; default to the real repository module and the
  *   configured router. Property tests pass in-memory fakes here.
@@ -292,10 +295,11 @@ export async function buildPresalePlan({
   filters = {},
   depot = DEFAULT_DEPOT,
   vehicles,
-  departAt = new Date(),
+  departAt,
   deps = {},
 } = {}) {
   const repositories = deps.repositories || realRepositories;
+  const resolvedDepartAt = departAt ?? defaultDepartAt(toDateKey(filters.DELIVERY_DATE));
 
   const joined = await repositories.joinPresale();
   const filtered = applyPresaleFilters(joined, filters);
@@ -361,7 +365,7 @@ export async function buildPresalePlan({
     depot,
     vehicles: fleet,
     orders,
-    departAt,
+    departAt: resolvedDepartAt,
     router: deps.router,
   });
 

@@ -196,6 +196,33 @@ test("LongdoGeocoder builds a keyed search URL and parses lat/lng from the respo
   }
 });
 
+// --- A hanging request must not stall a bulk backfill run indefinitely -------
+test("LongdoGeocoder: a hanging request is treated as unresolved after requestTimeoutMs, not forever", async () => {
+  const originalFetch = globalThis.fetch;
+  // Simulate an unresponsive endpoint: fetch never resolves on its own, only
+  // rejects when the AbortController's signal fires.
+  globalThis.fetch = (url, { signal } = {}) =>
+    new Promise((_, reject) => {
+      signal?.addEventListener("abort", () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        reject(err);
+      });
+    });
+
+  try {
+    const geocoder = createGeocoder({ provider: "longdo", apiKey: "K", requestTimeoutMs: 30 });
+    const start = Date.now();
+    const result = await geocoder.geocode("some address");
+    const elapsedMs = Date.now() - start;
+
+    assert.equal(result, null);
+    assert.ok(elapsedMs < 2000, `should resolve near requestTimeoutMs, took ${elapsedMs}ms`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // --- Task 7.3: HTTP error and network failure both resolve to null -----------
 // Validates: Requirement 2.2 (errors treated as unresolved)
 test("LongdoGeocoder returns null on HTTP error and on a network throw", async () => {

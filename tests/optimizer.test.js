@@ -195,6 +195,72 @@ test("planDeliveries: ETAs and distance come from the injected router", async ()
   assert.equal(plan.routes[0].stops[1].eta, "2026-01-01T08:20:00.000Z");
 });
 
+test("planDeliveries: a route's legsGeometry carries each leg's real geometry, falling back to null per-leg when the router has none", async () => {
+  const depot = { lat: 13.75, lng: 100.5 };
+  const vehicles = [{ id: "V1", capacity: 100, fuelType: "diesel" }];
+  const orders = [
+    { id: "A", demand: 10, location: { lat: 13.72, lng: 100.53 } },
+    { id: "B", demand: 10, location: { lat: 13.8, lng: 100.55 } },
+  ];
+
+  // A router that only has geometry for the FIRST leg of the first
+  // routeLegs() call — mirrors a real LongdoRouter where one leg's geometry
+  // fetch failed but the others succeeded. `planDeliveries` calls
+  // routeLegs() TWICE: once for the actual rendered route (WITH geometry)
+  // and once for the metrics-only baseline (withGeometry expected falsy,
+  // since that comparison is never rendered) — call order distinguishes them.
+  let routeLegsCallCount = 0;
+  const withGeometryByCall = [];
+  let legIndexWithinCall = 0;
+  const partialGeometryRouter = {
+    provider: "fake",
+    async routeLegs(points, opts) {
+      routeLegsCallCount += 1;
+      withGeometryByCall.push(Boolean(opts.withGeometry));
+      legIndexWithinCall = 0;
+      return points.slice(1).map(() => {
+        legIndexWithinCall += 1;
+        const isFirstLegOfFirstCall = routeLegsCallCount === 1 && legIndexWithinCall === 1;
+        return {
+          distanceKm: 2,
+          durationMin: 6,
+          geometry: isFirstLegOfFirstCall ? [{ lat: 13.751, lng: 100.501 }, { lat: 13.76, lng: 100.51 }] : null,
+        };
+      });
+    },
+  };
+
+  const plan = await planDeliveries({ depot, vehicles, orders, router: partialGeometryRouter });
+
+  assert.equal(withGeometryByCall[0], true, "the rendered route's leg computation must request geometry");
+  assert.equal(withGeometryByCall[1], false, "the baseline-only comparison must NOT request geometry");
+
+  assert.ok(Array.isArray(plan.routes[0].legsGeometry));
+  // 2 stops -> 3 legs (depot->A, A->B, B->depot).
+  assert.equal(plan.routes[0].legsGeometry.length, 3);
+  assert.deepEqual(plan.routes[0].legsGeometry[0], [
+    { lat: 13.751, lng: 100.501 },
+    { lat: 13.76, lng: 100.51 },
+  ]);
+  assert.equal(plan.routes[0].legsGeometry[1], null);
+  assert.equal(plan.routes[0].legsGeometry[2], null);
+});
+
+test("planDeliveries: legsGeometry is all-null when the router never supplies a geometry field at all (e.g. estimator/legacy fake)", async () => {
+  const depot = { lat: 13.75, lng: 100.5 };
+  const vehicles = [{ id: "V1", capacity: 100, fuelType: "diesel" }];
+  const orders = [{ id: "A", demand: 10, location: { lat: 13.72, lng: 100.53 } }];
+  const noGeometryRouter = {
+    provider: "fake",
+    async routeLegs(points) {
+      return points.slice(1).map(() => ({ distanceKm: 2, durationMin: 6 }));
+    },
+  };
+
+  const plan = await planDeliveries({ depot, vehicles, orders, router: noGeometryRouter });
+  assert.deepEqual(plan.routes[0].legsGeometry, [null, null]);
+});
+
 test("planDeliveries: a route reports the vehicle's own depot when set (additive field)", async () => {
   const planDepot = { lat: 13.75, lng: 100.5 };
   const storeDepot = { lat: 14.0, lng: 100.9 };

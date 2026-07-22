@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Farmhouse Database</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="plan.css" />
+    <link rel="stylesheet" href="database.css" />
+  </head>
+  <body>
+    <header class="topbar reveal" style="--i: 0">
+      <div class="brand">
+        <span class="dot"></span>
+        <div>
+          <h1>Farmhouse Database</h1>
+          <p>Current state of the uploaded Shop_Master, History and Presale data</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <a class="btn secondary" href="index.html">← Dashboard</a>
+        <a class="btn secondary" href="plan.html">Planner</a>
+        <a class="btn secondary" href="deliveryReport.html">Delivery report</a>
+        <a class="btn secondary" href="admin.html">Admin</a>
+        <button id="refreshBtn" class="btn">Refresh</button>
+      </div>
+    </header>
+
+    <main class="plan-layout">
+      <!-- ============================ SUMMARY ============================ -->
+      <section class="panel" id="summaryPanel">
+        <h2>Summary</h2>
+        <div class="metrics" id="summaryMetrics"></div>
+
+        <h3>By DC</h3>
+        <div id="byDcTable"></div>
+
+        <h3>By Store</h3>
+        <div id="byStoreTable"></div>
+      </section>
+
+      <!-- ============================ SHOPS ============================ -->
+      <section class="panel" id="shopsPanel">
+        <div class="db-panel-header">
+          <h2>Shops (Shop_Master + backfilled)</h2>
+          <div class="db-pager" id="shopsPager"></div>
+        </div>
+        <div id="shopsTable"></div>
+      </section>
+
+      <!-- =========================== HISTORY =========================== -->
+      <section class="panel" id="historyPanel">
+        <div class="db-panel-header">
+          <h2>History entries</h2>
+          <div class="db-pager" id="historyPager"></div>
+        </div>
+        <div id="historyTable"></div>
+      </section>
+
+      <!-- =========================== PRESALE ============================ -->
+      <section class="panel" id="presalePanel">
+        <div class="db-panel-header">
+          <h2>Presale entries</h2>
+          <div class="db-pager" id="presalePager"></div>
+        </div>
+        <div id="presaleTable"></div>
+      </section>
+    </main>
+
+    <script type="module" src="database.js"></script>
+  </body>
+</html>

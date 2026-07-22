@@ -1,0 +1,116 @@
+/* Hallmark · design system tokens — see /design.md for the full rationale.
+ * Single source of truth for color/type/space/motion across every page.
+ * Loaded by every HTML page before its own stylesheet. */
+
+:root {
+  /* Paper / ink */
+  --color-paper:      oklch(97.8% 0.016 82.8);
+  --color-paper-2:    oklch(92.9% 0.041 85.3);
+  --color-ink:        oklch(30.3% 0.028 55.1);
+  --color-ink-2:      oklch(53.6% 0.035 66.9);
+  --color-rule:       oklch(85% 0.02 80);
+  --color-rule-strong: oklch(78% 0.03 75);
+
+  /* Brand accent */
+  --color-accent:      oklch(54.7% 0.176 31.9);
+  --color-accent-2:    oklch(48.4% 0.157 31.9);
+  --color-accent-ink:  oklch(99% 0.005 82.8);
+  --color-accent-wash: oklch(54.7% 0.176 31.9 / 12%);
+  --color-gold:        oklch(75.4% 0.138 74.7);
+  --color-gold-wash:   oklch(75.4% 0.138 74.7 / 20%);
+  --color-focus:       oklch(54.7% 0.176 31.9);
+
+  /* Functional status semantics (not decorative — see design.md) */
+  --color-early:       oklch(56.1% 0.092 238.7);
+  --color-early-wash:  oklch(56.1% 0.092 238.7 / 14%);
+  --color-on-time:     oklch(60.1% 0.097 140.9);
+  --color-on-time-wash: oklch(60.1% 0.097 140.9 / 14%);
+  --color-late:        oklch(54.3% 0.174 29.7);
+  --color-late-wash:   oklch(54.3% 0.174 29.7 / 14%);
+
+  /* Surfaces — frosted glass panels over the warm gradient backdrop (restored
+   * by explicit request; see design.md's "deviation from Hallmark's default
+   * glassmorphism ban"). --surface/--surface-2 are translucent so the blur
+   * actually shows the backdrop through them. */
+  --surface: oklch(99% 0.008 82.8 / 62%);
+  --surface-2: oklch(95.5% 0.02 83 / 46%);
+  --surface-shadow: 0 10px 30px oklch(30% 0.05 40 / 18%);
+  --surface-shadow-sm: 0 6px 16px oklch(30% 0.05 40 / 12%);
+
+  --glass: oklch(99% 0.008 82.8 / 42%);
+  --glass-strong: oklch(99% 0.008 82.8 / 62%);
+  --glass-2: oklch(99% 0.008 82.8 / 28%);
+  --glass-border: oklch(99% 0.008 82.8 / 70%);
+  --glass-shadow: var(--surface-shadow);
+  --blur: saturate(160%) blur(14px);
+
+  /* Type */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-body:    "Work Sans", -apple-system, system-ui, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --text-xs: 0.75rem;   --text-sm: 0.875rem;  --text-md: 1.125rem;
+  --text-lg: 1.375rem;  --text-xl: 1.75rem;   --text-2xl: 2.25rem;
+  --text-display: clamp(1.75rem, 1.3rem + 2vw, 2.75rem);
+
+  /* Space (4pt) */
+  --space-3xs: 0.25rem;  --space-2xs: 0.5rem;  --space-xs: 0.75rem;
+  --space-sm:  1rem;     --space-md:  1.5rem;  --space-lg: 2rem;
+  --space-xl:  3rem;     --space-2xl: 4.5rem;  --space-3xl: 7rem;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  /* Radii */
+  --radius-card: 14px;
+  --radius-panel: 16px;
+  --radius-pill: 999px;
+  --radius-input: 10px;
+  --radius-btn: 8px;
+}
+
+/* --------------------------------------------------------------------------
+ * Shared motion primitives — page-load stagger reveal, status-badge pulse.
+ * Every consumer stylesheet can use `.reveal` + `style="--i: N"` and
+ * `.pulse-once` without redefining the keyframes.
+ * ------------------------------------------------------------------------ */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: hm-reveal var(--dur-long) var(--ease-out) forwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+@keyframes hm-reveal {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pulse-once {
+  animation: hm-pulse-once 900ms var(--ease-out) 2;
+}
+
+@keyframes hm-pulse-once {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: hm-reveal-reduced 150ms linear forwards;
+  }
+  @keyframes hm-reveal-reduced {
+    to { opacity: 1; transform: none; }
+  }
+  .pulse-once {
+    animation: none;
+  }
+}

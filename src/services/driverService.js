@@ -46,6 +46,7 @@ import {
   verifyPassword as realVerifyPassword,
   newToken as realNewToken,
 } from "../auth/credentials.js";
+import { classifyDeviation } from "./onTimeClassification.js";
 
 /**
  * Terminal marker for a route's current stop: `null` means there is no next
@@ -53,6 +54,18 @@ import {
  * to this when nothing remains after the completed stop.
  */
 const ROUTE_COMPLETE = null;
+
+/** `"YYYY-MM-DD"` for a Date's LOCAL calendar day (mirrors the same
+ * local-getter convention used elsewhere in this app, e.g.
+ * `historyService.js`'s `toDateKey` — avoids the UTC-shift bug documented
+ * there). Exported so `driverRoutes.js`'s route assembly can compute the
+ * same "today" key when checking for already-completed stops. */
+export function localDayKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 /**
  * Authenticate a driver and issue a persisted bearer token (Req 10.1, 10.2).
@@ -201,4 +214,121 @@ export function advanceStop(route, completedSeq) {
   const currentSequence = nextStop ? nextStop.sequence : ROUTE_COMPLETE;
 
   return { ...route, stops, currentSequence };
+}
+
+/**
+ * Mark one of the authenticated driver's stops complete: persists a
+ * `delivery_completions` row snapshotting the stop's own planned ETA against
+ * the actual completion moment, classified early/on-time/late via the shared
+ * `onTimeClassification.js` (the same rule the admin daily report uses).
+ *
+ * The token is resolved to a `driverId` FIRST, mirroring `getDriverRoute` —
+ * the route provider is never consulted for an unauthenticated request.
+ *
+ * @param {unknown} token bearer token from the `Authorization: Bearer` header
+ * @param {string} customerCode the stop's `customerCode` (== the plan's `orderId`)
+ * @param {{ repositories?: object, getRouteForDriver?: (driverId:number) => any, now?: () => Date }} [deps]
+ * @returns {Promise<{ completedAt:string, scheduledEta:string|null,
+ *   deviationMin:number|null, category:string|null } | { message:string }>}
+ * @throws {AuthError} when the token does not resolve to a valid session
+ */
+export async function completeStop(token, customerCode, deps = {}) {
+  const driverId = await resolveToken(token, deps);
+  if (driverId == null) {
+    throw new AuthError();
+  }
+
+  const repositories = deps.repositories || realRepositories;
+  const getRouteForDriver = deps.getRouteForDriver;
+  if (typeof getRouteForDriver !== "function") {
+    throw new Error("driverService.completeStop requires deps.getRouteForDriver(driverId)");
+  }
+  const now = deps.now ? deps.now() : new Date();
+
+  const route = await getRouteForDriver(driverId);
+  const stop = (route?.stops || []).find((s) => s.customerCode === customerCode);
+  if (!stop) {
+    // The plan may have been rebuilt since the driver loaded the page — not an
+    // auth failure, just nothing to record against.
+    return { message: "stop not found in current route" };
+  }
+
+  const parsedEta = stop.eta ? new Date(stop.eta) : null;
+  const scheduledEta = parsedEta && !Number.isNaN(parsedEta.getTime()) ? parsedEta : null;
+  const deviationMin = scheduledEta ? Math.round((now.getTime() - scheduledEta.getTime()) / 60000) : null;
+  const category = classifyDeviation(deviationMin);
+  const day = localDayKey(now);
+
+  await repositories.upsertDeliveryCompletion({
+    driverId,
+    routeId: route.routeId,
+    customerCode,
+    customerName: stop.customer ?? null,
+    scheduledEta,
+    completedAt: now,
+    deviationMin,
+    category,
+    day,
+  });
+
+  return {
+    completedAt: now.toISOString(),
+    scheduledEta: scheduledEta ? scheduledEta.toISOString() : null,
+    deviationMin,
+    category,
+  };
+}
+
+/**
+ * Aggregate the authenticated driver's completions for one local day
+ * (defaults to today) into an early/on-time/late summary.
+ *
+ * @param {unknown} token bearer token
+ * @param {{ day?:string, repositories?: object, now?: () => Date }} [deps]
+ * @returns {Promise<{ day:string, completed:number, early:number, onTime:number,
+ *   late:number, earlyPct:number, onTimePct:number, latePct:number,
+ *   avgDeviationMin:number|null }>}
+ * @throws {AuthError} when the token does not resolve to a valid session
+ */
+export async function getDriverDaySummary(token, deps = {}) {
+  const driverId = await resolveToken(token, deps);
+  if (driverId == null) {
+    throw new AuthError();
+  }
+
+  const repositories = deps.repositories || realRepositories;
+  const now = deps.now ? deps.now() : new Date();
+  const day = deps.day || localDayKey(now);
+
+  const completions = await repositories.deliveryCompletionsForDriverDay(driverId, day);
+
+  let early = 0;
+  let onTime = 0;
+  let late = 0;
+  let deviationSum = 0;
+  let deviationCount = 0;
+  for (const c of completions) {
+    if (c.category === "early") early += 1;
+    else if (c.category === "on_time") onTime += 1;
+    else if (c.category === "late") late += 1;
+    if (Number.isFinite(c.deviationMin)) {
+      deviationSum += c.deviationMin;
+      deviationCount += 1;
+    }
+  }
+
+  const completed = completions.length;
+  const pct = (n) => (completed > 0 ? Math.round((n / completed) * 1000) / 10 : 0);
+
+  return {
+    day,
+    completed,
+    early,
+    onTime,
+    late,
+    earlyPct: pct(early),
+    onTimePct: pct(onTime),
+    latePct: pct(late),
+    avgDeviationMin: deviationCount > 0 ? Math.round((deviationSum / deviationCount) * 100) / 100 : null,
+  };
 }

@@ -11,12 +11,14 @@
  *   POST /api/ingest/upload      -> parse + persist an uploaded workbook
  *   POST /api/history/compare    -> historical vs optimized order comparison
  *   POST /api/presale/plan       -> optimized plan from the presale list
+ *   GET  /api/database/*         -> DB viewer: summary + paginated raw rows
  *   POST /api/driver/login       -> driver authentication (bearer token)
  *   GET  /api/driver/route       -> the authenticated driver's assigned route
  */
 
 import { Router } from "express";
 import { planDeliveries } from "../services/routeService.js";
+import { defaultDepartAt } from "../services/etaService.js";
 import { getScenario } from "../data/sampleData.js";
 import { distinctHistoryFilterValues } from "../db/repositories.js";
 import ingestRoutes from "./ingestRoutes.js";
@@ -24,6 +26,8 @@ import historyRoutes from "./historyRoutes.js";
 import presaleRoutes from "./presaleRoutes.js";
 import driverRoutes from "./driverRoutes.js";
 import adminRoutes from "./adminRoutes.js";
+import databaseRoutes from "./databaseRoutes.js";
+import deliveryReportRoutes from "./deliveryReportRoutes.js";
 import { requireAdmin } from "./requireAdmin.js";
 
 const router = Router();
@@ -79,7 +83,7 @@ router.get("/plan/sample", requireAdmin, async (_req, res, next) => {
       depot: scenario.depot,
       vehicles: scenario.vehicles,
       orders: scenario.orders,
-      departAt: new Date(),
+      departAt: defaultDepartAt(),
     });
     res.json(plan);
   } catch (err) {
@@ -100,7 +104,7 @@ router.post("/plan", requireAdmin, async (req, res, next) => {
       depot,
       vehicles,
       orders,
-      departAt: departAt ? new Date(departAt) : new Date(),
+      departAt: departAt ? new Date(departAt) : defaultDepartAt(),
     });
     res.json(plan);
   } catch (err) {
@@ -145,6 +149,8 @@ function validatePayload({ depot, vehicles, orders }) {
 router.use("/ingest", requireAdmin, ingestRoutes);
 router.use("/history", requireAdmin, historyRoutes);
 router.use("/presale", requireAdmin, presaleRoutes);
+router.use("/database", requireAdmin, databaseRoutes);
+router.use("/delivery-report", requireAdmin, deliveryReportRoutes);
 router.use("/driver", driverRoutes);
 router.use("/admin", adminRoutes);
 

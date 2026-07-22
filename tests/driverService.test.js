@@ -7,6 +7,9 @@ import {
   resolveToken,
   getDriverRoute,
   advanceStop,
+  completeStop,
+  getDriverDaySummary,
+  localDayKey,
 } from "../src/services/driverService.js";
 import {
   hashPassword,
@@ -29,6 +32,7 @@ import {
 function makeFakeRepos(drivers = []) {
   const driversByUsername = new Map(drivers.map((d) => [d.username, d]));
   const sessions = new Map(); // token -> { driverId, expiresAt }
+  const completions = []; // upserted delivery_completions rows, in insertion order
   return {
     async findDriverByUsername(username) {
       return driversByUsername.get(username) || null;
@@ -42,8 +46,28 @@ function makeFakeRepos(drivers = []) {
     async deleteSession(token) {
       sessions.delete(token);
     },
+    async upsertDeliveryCompletion(record) {
+      const i = completions.findIndex(
+        (c) => c.driverId === record.driverId && c.customerCode === record.customerCode && c.day === record.day
+      );
+      if (i >= 0) completions[i] = record;
+      else completions.push(record);
+    },
+    async deliveryCompletionsForDriverDay(driverId, day) {
+      return completions
+        .filter((c) => c.driverId === driverId && c.day === day)
+        .map((c) => ({
+          customerCode: c.customerCode,
+          customerName: c.customerName ?? null,
+          scheduledEta: c.scheduledEta ?? null,
+          completedAt: c.completedAt,
+          deviationMin: c.deviationMin ?? null,
+          category: c.category ?? null,
+        }));
+    },
     // Exposed for assertions in tests.
     _sessions: sessions,
+    _completions: completions,
   };
 }
 
@@ -315,4 +339,131 @@ test("advanceStop: skips already-completed stops when choosing the next current 
 
   const result = advanceStop(route, 1);
   assert.equal(result.currentSequence, 3);
+});
+
+// ---------------------------------------------------------------------------
+// completeStop / getDriverDaySummary
+// ---------------------------------------------------------------------------
+
+test("completeStop: persists a completion classified against the stop's own ETA", async () => {
+  const repos = makeFakeRepos([]);
+  const now = new Date("2026-07-19T04:20:00.000Z"); // 20 min after the ETA below -> late
+  const route = {
+    routeId: "Store A",
+    stops: [{ sequence: 1, customerCode: "C1", customer: "Shop 1", eta: "2026-07-19T04:00:00.000Z", completed: false }],
+  };
+  const deps = { repositories: repos, getRouteForDriver: async () => route, now: () => now };
+
+  await repos.insertSession("tok", 1);
+  const result = await completeStop("tok", "C1", deps);
+
+  assert.equal(result.category, "late");
+  assert.equal(result.deviationMin, 20);
+  assert.equal(result.scheduledEta, "2026-07-19T04:00:00.000Z");
+  assert.equal(result.completedAt, now.toISOString());
+
+  assert.equal(repos._completions.length, 1);
+  assert.equal(repos._completions[0].driverId, 1);
+  assert.equal(repos._completions[0].routeId, "Store A");
+  assert.equal(repos._completions[0].customerCode, "C1");
+  assert.equal(repos._completions[0].category, "late");
+});
+
+test("completeStop: a stop with no ETA is still recorded, with null deviation/category", async () => {
+  const repos = makeFakeRepos([]);
+  const route = { routeId: "Store A", stops: [{ sequence: 1, customerCode: "C1", customer: "Shop 1", eta: null }] };
+  const deps = { repositories: repos, getRouteForDriver: async () => route };
+
+  await repos.insertSession("tok", 1);
+  const result = await completeStop("tok", "C1", deps);
+
+  assert.equal(result.scheduledEta, null);
+  assert.equal(result.deviationMin, null);
+  assert.equal(result.category, null);
+  assert.equal(repos._completions[0].deviationMin, null);
+});
+
+test("completeStop: a customerCode not in the current route is reported, not thrown/crashed", async () => {
+  const repos = makeFakeRepos([]);
+  const route = { routeId: "Store A", stops: [{ sequence: 1, customerCode: "C1", customer: "Shop 1", eta: null }] };
+  const deps = { repositories: repos, getRouteForDriver: async () => route };
+
+  await repos.insertSession("tok", 1);
+  const result = await completeStop("tok", "DOES_NOT_EXIST", deps);
+
+  assert.deepEqual(result, { message: "stop not found in current route" });
+  assert.equal(repos._completions.length, 0);
+});
+
+test("completeStop: re-completing the same customer on the same day upserts, not duplicates", async () => {
+  const repos = makeFakeRepos([]);
+  const route = { routeId: "Store A", stops: [{ sequence: 1, customerCode: "C1", customer: "Shop 1", eta: "2026-07-19T04:00:00.000Z" }] };
+  const deps = {
+    repositories: repos,
+    getRouteForDriver: async () => route,
+    now: () => new Date("2026-07-19T04:05:00.000Z"),
+  };
+
+  await repos.insertSession("tok", 1);
+  await completeStop("tok", "C1", deps);
+  const second = await completeStop("tok", "C1", { ...deps, now: () => new Date("2026-07-19T04:10:00.000Z") });
+
+  assert.equal(repos._completions.length, 1, "same driver/customer/day upserts in place");
+  assert.equal(second.deviationMin, 10);
+});
+
+test("completeStop: an unauthenticated token is denied and the route provider is never consulted", async () => {
+  const repos = makeFakeRepos([]);
+  let called = false;
+  const deps = { repositories: repos, getRouteForDriver: async () => { called = true; return { stops: [] }; } };
+
+  await assert.rejects(() => completeStop("not-a-real-token", "C1", deps), (err) => err instanceof AuthError);
+  assert.equal(called, false);
+});
+
+test("getDriverDaySummary: aggregates a driver's completions for one day", async () => {
+  const repos = makeFakeRepos([]);
+  const deps = { repositories: repos, now: () => new Date("2026-07-19T10:00:00.000Z") };
+  await repos.insertSession("tok", 1);
+
+  const day = "2026-07-19";
+  await repos.upsertDeliveryCompletion({ driverId: 1, routeId: "R1", customerCode: "C1", completedAt: new Date(), deviationMin: -20, category: "early", day });
+  await repos.upsertDeliveryCompletion({ driverId: 1, routeId: "R1", customerCode: "C2", completedAt: new Date(), deviationMin: 2, category: "on_time", day });
+  await repos.upsertDeliveryCompletion({ driverId: 1, routeId: "R1", customerCode: "C3", completedAt: new Date(), deviationMin: 30, category: "late", day });
+  // A different day must not be counted.
+  await repos.upsertDeliveryCompletion({ driverId: 1, routeId: "R1", customerCode: "C4", completedAt: new Date(), deviationMin: 5, category: "on_time", day: "2026-07-18" });
+
+  const summary = await getDriverDaySummary("tok", deps);
+
+  assert.equal(summary.day, day);
+  assert.equal(summary.completed, 3);
+  assert.equal(summary.early, 1);
+  assert.equal(summary.onTime, 1);
+  assert.equal(summary.late, 1);
+  assert.equal(summary.avgDeviationMin, 4); // (-20 + 2 + 30) / 3 = 4
+});
+
+test("getDriverDaySummary: no completions for the day -> zeroed summary, not an error", async () => {
+  const repos = makeFakeRepos([]);
+  await repos.insertSession("tok", 1);
+  const deps = { repositories: repos, day: "2026-07-19" };
+
+  const summary = await getDriverDaySummary("tok", deps);
+  assert.equal(summary.completed, 0);
+  assert.equal(summary.early, 0);
+  assert.equal(summary.onTimePct, 0);
+  assert.equal(summary.avgDeviationMin, null);
+});
+
+test("getDriverDaySummary: an unauthenticated token is denied", async () => {
+  const repos = makeFakeRepos([]);
+  await assert.rejects(
+    () => getDriverDaySummary("not-a-real-token", { repositories: repos }),
+    (err) => err instanceof AuthError
+  );
+});
+
+test("localDayKey: formats a Date's LOCAL calendar day as YYYY-MM-DD", () => {
+  assert.equal(localDayKey(new Date(2026, 6, 19, 23, 59)), "2026-07-19");
+  assert.equal(localDayKey(new Date(2026, 0, 5, 0, 0)), "2026-01-05");
 });

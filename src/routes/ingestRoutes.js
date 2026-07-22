@@ -2,6 +2,7 @@
  * Excel ingestion router (Requirement 1, 2).
  *
  *   POST /api/ingest/upload   multipart/form-data { file: <.xlsx>, type?: hint }
+ *   GET  /api/ingest/status   -> backfill-geocoding job progress (see below)
  *
  * Flow (design "New API endpoints" + sequence "Uploads"):
  *   1. multer memoryStorage hands us the uploaded file as an in-memory Buffer
@@ -17,17 +18,17 @@
  *      unresolved-coordinate warning by id.
  *   6. persist via the repository layer (upsert shops / insert history / insert
  *      presale) and respond 200 { type, rowCount, headers, mapped, warnings }.
+ *   7. trigger the backfill-geocoding job (`services/backfillService.js`) once
+ *      all THREE workbook types have at least one row — fire-and-forget, so
+ *      the upload response returns immediately; `GET /status` reports its
+ *      progress for the UI to poll. Nothing to filter or configure first.
  *
  * Error translation: an IngestionError (unreadable file, or — if ever thrown —
  * a client-safe validation failure) is translated to its own `.status` (400)
  * here; any other failure (a DB/pg rejection, an unexpected bug) is forwarded to
  * the central error handler in server.js via next(err) -> 500.
  *
- * SECURITY NOTE: this is an UNAUTHENTICATED planner endpoint — there is no auth
- * on ingest by design for this prototype. Uploaded cell values only ever reach
- * Postgres through the repository layer's parameterized queries, so untrusted
- * content is treated as data and cannot alter SQL; the multer size limit bounds
- * memory. Add authentication before any non-prototype deployment.
+ * This router is mounted behind `requireAdmin` in `routes/api.js`.
  */
 
 import { Router } from "express";
@@ -42,6 +43,7 @@ import {
   mapPresaleRows,
 } from "../ingestion/mappers.js";
 import { createGeocoder, resolveShopCoordinates } from "../routing/geocoder.js";
+import { triggerBackfillIfReady, getBackfillStatus } from "../services/backfillService.js";
 import * as repositories from "../db/repositories.js";
 
 const router = Router();
@@ -128,6 +130,10 @@ router.post("/upload", upload.single("file"), async (req, res, next) => {
       mapped = result.records.length;
     }
 
+    // 7. Once all three workbook types are present, kick off the backfill job
+    // in the background — does not block this response.
+    await triggerBackfillIfReady();
+
     return res.json({ type, rowCount, headers, mapped, warnings });
   } catch (err) {
     // IngestionError carries a client-safe message + HTTP status (400). Any
@@ -137,6 +143,10 @@ router.post("/upload", upload.single("file"), async (req, res, next) => {
     }
     return next(err);
   }
+});
+
+router.get("/status", (_req, res) => {
+  res.json(getBackfillStatus());
 });
 
 export default router;

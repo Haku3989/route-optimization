@@ -11,6 +11,38 @@ import { drivingDistanceKm } from "../optimizer/distance.js";
 const DEFAULT_SPEED_KMH = 35; // urban average
 const SERVICE_MINUTES_PER_STOP = 8; // unloading / handover time
 
+/** Delivery vehicles depart the depot at this wall-clock hour every day. */
+const DEFAULT_DEPART_HOUR = 4;
+
+/** `"YYYY-MM-DD"` for the server's LOCAL today. */
+function todayDateKey() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * The default route departure time: `DEFAULT_DEPART_HOUR:00` on the given
+ * calendar day, or today when no `dateKey` is given.
+ *
+ * Built directly from an ISO string with an explicit "Z" so the resulting
+ * Date's UTC time-of-day IS `DEFAULT_DEPART_HOUR:00` — this codebase does not
+ * model real timezones end-to-end, so `etasFromLegs`'s window-checking (see
+ * its docs) already relies on the convention that a `departAt`'s UTC
+ * time-of-day represents the shop's LOCAL wall-clock time. Building it this
+ * way here keeps that convention consistent instead of introducing a real
+ * UTC+7 conversion in one call site only.
+ *
+ * @param {string|null} [dateKey] `"YYYY-MM-DD"`; falsy -> today
+ * @returns {Date}
+ */
+export function defaultDepartAt(dateKey) {
+  const key = dateKey || todayDateKey();
+  return new Date(`${key}T${String(DEFAULT_DEPART_HOUR).padStart(2, "0")}:00:00.000Z`);
+}
+
 /**
  * Compute per-stop ETAs for a single route.
  *
@@ -196,4 +228,4 @@ function round(n) {
   return Math.round(n * 100) / 100;
 }
 
-export const ETA_CONFIG = { DEFAULT_SPEED_KMH, SERVICE_MINUTES_PER_STOP };
+export const ETA_CONFIG = { DEFAULT_SPEED_KMH, SERVICE_MINUTES_PER_STOP, DEFAULT_DEPART_HOUR };

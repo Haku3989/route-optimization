@@ -163,6 +163,11 @@ class LongdoGeocoder {
     this.apiKey = apiKey;
     this.baseUrl =
       opts.baseUrl || process.env.LONGDO_GEOCODE_URL || DEFAULT_GEOCODE_URL;
+    // Mirrors LongdoRouter's timeout (router.js) — a bulk backfill run makes
+    // thousands of sequential/pooled requests, and one unbounded hang without
+    // this would stall the whole job indefinitely (Req 2.3: never crash/hang
+    // a plan on a network failure).
+    this.requestTimeoutMs = opts.requestTimeoutMs || 8000;
   }
 
   /**
@@ -177,14 +182,18 @@ class LongdoGeocoder {
       `${this.baseUrl}?keyword=${encodeURIComponent(query)}` +
       `&limit=1&locale=en&key=${encodeURIComponent(this.apiKey)}`;
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) return null; // HTTP error -> unresolved (Req 2.2, 2.3)
       const json = await res.json();
       return parseLongdoSearchResponse(json);
     } catch {
-      // Network failure / non-JSON body -> unresolved, never throw (Req 2.3).
+      // Network failure / timeout / non-JSON body -> unresolved, never throw (Req 2.3).
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
